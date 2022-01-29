@@ -1,0 +1,13 @@
+[package]
+name = "hello-world"
+version = "0.1.0"
+authors = ["saintech <mail@saintech.ru>"]
+edition = "2018"
+license = "WTFPL"
+repository = "https://github.com/saintech/asteroids"
+readme="README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+macroquad = "0.3"
