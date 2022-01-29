@@ -1,11 +1,12 @@
 use std::f32;
 
-use macroquad::{color, input, miniquad::date, rand, shapes, time, window};
+use macroquad::{color, input, miniquad::date, rand, shapes, text, time, window};
 
 const ARENA_WIDTH: f32 = 800.0;
 const ARENA_HEIGHT: f32 = 600.0;
-const SHIP_RADIUS: f32 = 30.0;
-const BULLET_TIMER_LIMIT: f32 = 0.5;
+const SHIP_RADIUS: f32 = 18.0;
+const BULLET_COOLDOWN: f32 = 0.3;
+const BULLET_TIMER_LIMIT: f32 = 1.0;
 const BULLET_RADIUS: f32 = 5.0;
 const ASTEROID_STAGES: &[AsteroidStage] = &[
     AsteroidStage {
@@ -65,7 +66,7 @@ fn reset(state: &mut GameState) {
     state.ship_speed_x = 0.0;
     state.ship_speed_y = 0.0;
     state.bullets = Default::default();
-    state.bullet_timer = BULLET_TIMER_LIMIT;
+    state.bullet_timer = BULLET_COOLDOWN;
     state.asteroids = vec![
         Asteroid {
             x: 100.0,
@@ -93,8 +94,12 @@ fn load(state: &mut GameState) {
     reset(state);
 }
 
+fn key_pressed(_state: &mut GameState, _key: input::KeyCode) {
+    // template
+}
+
 fn update(state: &mut GameState, dt: f32) {
-    let turn_speed = 10.0;
+    let turn_speed = 6.0;
     if input::is_key_down(input::KeyCode::Right) {
         state.ship_angle = state.ship_angle + turn_speed * dt;
     }
@@ -166,13 +171,13 @@ fn update(state: &mut GameState, dt: f32) {
     }
     state.bullet_timer = state.bullet_timer + dt;
     if input::is_key_down(input::KeyCode::S) {
-        if state.bullet_timer >= BULLET_TIMER_LIMIT {
+        if state.bullet_timer >= BULLET_COOLDOWN {
             state.bullet_timer = 0.0;
             state.bullets.push(Bullet {
                 x: state.ship_x + state.ship_angle.cos() * SHIP_RADIUS,
                 y: state.ship_y + state.ship_angle.sin() * SHIP_RADIUS,
                 angle: state.ship_angle,
-                time_left: 4.0,
+                time_left: BULLET_TIMER_LIMIT,
             })
         }
     }
@@ -200,33 +205,79 @@ fn update(state: &mut GameState, dt: f32) {
     }
 }
 
+fn draw_ship(x: f32, y: f32, angle: f32, radius: f32, color: color::Color) {
+    use macroquad::prelude::{DrawMode, Vertex};
+    let gl = unsafe { window::get_internal_gl().quad_gl };
+    let vertices = vec![
+        Vertex::new(
+            x + angle.cos() * radius,
+            y + angle.sin() * radius,
+            0.0,
+            0.0,
+            0.0,
+            color,
+        ),
+        Vertex::new(
+            x + (angle + f32::consts::PI * 0.75).cos() * radius,
+            y + (angle + f32::consts::PI * 0.75).sin() * radius,
+            0.0,
+            0.0,
+            0.0,
+            color,
+        ),
+        Vertex::new(
+            x + (angle + f32::consts::PI * 0.79).cos() * radius / 2.5,
+            y + (angle + f32::consts::PI * 0.79).sin() * radius / 2.5,
+            0.0,
+            0.0,
+            0.0,
+            color,
+        ),
+        Vertex::new(
+            x + (angle + f32::consts::PI * 1.21).cos() * radius / 2.5,
+            y + (angle + f32::consts::PI * 1.21).sin() * radius / 2.5,
+            0.0,
+            0.0,
+            0.0,
+            color,
+        ),
+        Vertex::new(
+            x + (angle + f32::consts::PI * 1.25).cos() * radius,
+            y + (angle + f32::consts::PI * 1.25).sin() * radius,
+            0.0,
+            0.0,
+            0.0,
+            color,
+        ),
+    ];
+    let indices = [0, 1, 2, 0, 2, 3, 0, 3, 4];
+    gl.texture(None);
+    gl.draw_mode(DrawMode::Triangles);
+    gl.geometry(&vertices, &indices);
+}
+
 fn draw(state: &mut GameState) {
     let mut color;
     for y in -1..=1 {
         for x in -1..=1 {
             let offset_x = x as f32 * ARENA_WIDTH;
             let offset_y = y as f32 * ARENA_HEIGHT;
-            color = color::Color::new(0.0, 0.0, 1.0, 1.0);
-            shapes::draw_circle(
+            color = color::Color::new(0.0, 1.0, 1.0, 1.0);
+            draw_ship(
                 state.ship_x + offset_x,
                 state.ship_y + offset_y,
+                state.ship_angle,
                 SHIP_RADIUS,
-                color,
-            );
-            let ship_circle_distance = 20.0;
-            color = color::Color::new(0.0, 1.0, 1.0, 1.0);
-            shapes::draw_circle(
-                state.ship_x + offset_x + state.ship_angle.cos() * ship_circle_distance,
-                state.ship_y + offset_y + state.ship_angle.sin() * ship_circle_distance,
-                5.0,
                 color,
             );
             for bullet in &state.bullets {
                 color = color::Color::new(0.0, 1.0, 0.0, 1.0);
-                shapes::draw_circle(
+                shapes::draw_line(
                     bullet.x + offset_x,
                     bullet.y + offset_y,
-                    BULLET_RADIUS,
+                    bullet.x + offset_x - bullet.angle.cos() * 10.0,
+                    bullet.y + offset_y - bullet.angle.sin() * 10.0,
+                    2.0,
                     color,
                 );
             }
@@ -241,14 +292,48 @@ fn draw(state: &mut GameState) {
             }
         }
     }
+
+    // Debug info
+    color = color::Color::new(0.5, 0.5, 0.5, 1.0);
+    [
+        ("ship_angle", state.ship_angle),
+        ("ship_x", state.ship_x),
+        ("ship_y", state.ship_y),
+        ("ship_speed_x", state.ship_speed_x),
+        ("ship_speed_y", state.ship_speed_y),
+        ("bullet_0_x", state.bullets.get(0).map_or(0.0, |b| b.x)),
+        ("bullet_0_y", state.bullets.get(0).map_or(0.0, |b| b.y)),
+    ]
+    .iter()
+    .enumerate()
+    .for_each(|(i, (name, val))| {
+        text::draw_text(
+            &format!("{}: {}", name, val),
+            0.0,
+            16.0 * (i + 1) as f32,
+            16.0,
+            color,
+        )
+    });
 }
 
-#[macroquad::main("asteroids")]
+fn window_conf() -> window::Conf {
+    window::Conf {
+        window_title: String::from("asteroids"),
+        window_resizable: false,
+        ..Default::default()
+    }
+}
+
+#[macroquad::main(window_conf)]
 async fn main() {
     rand::srand(date::now() as u64);
     let mut state = GameState::default();
     load(&mut state);
     loop {
+        if let Some(key) = input::get_last_key_pressed() {
+            key_pressed(&mut state, key);
+        }
         update(&mut state, time::get_frame_time());
         draw(&mut state);
         window::next_frame().await;
