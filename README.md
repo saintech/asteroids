@@ -2,7 +2,7 @@
 
 Simple [Asteroids](https://en.wikipedia.org/wiki/Asteroids_(video_game)) game clone in Rust language, using [macroquad](https://github.com/not-fl3/macroquad) engine.
 
-Based on an [Asteroids tutorial for Lua and LÖVE 11](https://simplegametutorials.github.io/love/asteroids/).
+Based on an [Asteroids tutorial for Lua and LÖVE 11](https://simplegametutorials.github.io/love/asteroids/). To compare with [Lua version](https://simplegametutorials.github.io/love/asteroids/20.html) see the [init commit](https://github.com/saintech/asteroids/blob/e4019f7/src/main.rs) version which is closest to the original.
 
 ## Playing the game from source
 
