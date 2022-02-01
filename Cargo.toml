@@ -1,5 +1,5 @@
 [package]
-name = "hello-world"
+name = "asteroids"
 version = "0.1.0"
 authors = ["saintech <mail@saintech.ru>"]
 edition = "2018"
