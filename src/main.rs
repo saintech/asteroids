@@ -1,13 +1,14 @@
 use std::f32::consts::PI;
 
-use macroquad::{color, input, miniquad::date, rand, shapes, text, time, window};
+use macroquad::{color, input, math, miniquad::date, rand, shapes, text, time, window};
 
 const ARENA_WIDTH: f32 = 800.0;
 const ARENA_HEIGHT: f32 = 600.0;
 const SHIP_MAX_SPEED: f32 = 400.0;
 const SHIP_ACCEL: f32 = 500.0;
 const SHIP_DECEL: f32 = 0.2;
-const SHIP_RADIUS: f32 = 18.0;
+const SHIP_DRAW_RADIUS: f32 = 16.0;
+const SHIP_HIT_RADIUS: f32 = 10.0;
 const SHIP_TURN_SPEED: f32 = 6.0;
 const BULLET_SPEED: f32 = 600.0;
 const BULLET_COOLDOWN: f32 = 0.3;
@@ -16,15 +17,15 @@ const BULLET_RADIUS: f32 = 3.0;
 const ASTEROID_STAGES: &[AsteroidStage] = &[
     AsteroidStage {
         max_speed: 180.0,
-        radius: 18.0,
+        radius: 12.0,
     },
     AsteroidStage {
         max_speed: 120.0,
-        radius: 30.0,
+        radius: 33.0,
     },
     AsteroidStage {
         max_speed: 60.0,
-        radius: 50.0,
+        radius: 40.0,
     },
 ];
 
@@ -52,7 +53,7 @@ struct Asteroid {
 
 impl Asteroid {
     pub fn new(x: f32, y: f32, stage: usize) -> Self {
-        let radius = ASTEROID_STAGES[stage].radius;
+        let radius = ASTEROID_STAGES[stage].radius + 5.0;
         let max_speed = ASTEROID_STAGES[stage].max_speed;
         let mut draw_points = vec![];
         let mut draw_angle: f32 = 0.0;
@@ -81,6 +82,7 @@ struct GameState {
     ship_angle: f32,
     ship_velocity_x: f32,
     ship_velocity_y: f32,
+    ship_has_exhaust: bool,
     bullets: Vec<Bullet>,
     bullet_timer: f32,
     asteroids: Vec<Asteroid>,
@@ -127,10 +129,13 @@ fn update(state: &mut GameState, dt: f32) {
     state.ship_velocity_x = state.ship_velocity_x - (state.ship_velocity_x * SHIP_DECEL * dt);
     state.ship_velocity_y = state.ship_velocity_y - (state.ship_velocity_y * SHIP_DECEL * dt);
     if input::is_key_down(input::KeyCode::Up) {
+        state.ship_has_exhaust = true;
         if f32::hypot(state.ship_velocity_x, state.ship_velocity_y) <= SHIP_MAX_SPEED {
             state.ship_velocity_x += state.ship_angle.cos() * SHIP_ACCEL * dt;
             state.ship_velocity_y += state.ship_angle.sin() * SHIP_ACCEL * dt;
         }
+    } else {
+        state.ship_has_exhaust = false;
     }
     state.ship_x = (state.ship_x + state.ship_velocity_x * dt).rem_euclid(ARENA_WIDTH);
     state.ship_y = (state.ship_y + state.ship_velocity_y * dt).rem_euclid(ARENA_HEIGHT);
@@ -183,8 +188,8 @@ fn update(state: &mut GameState, dt: f32) {
         if state.bullet_timer >= BULLET_COOLDOWN {
             state.bullet_timer = 0.0;
             state.bullets.push(Bullet {
-                x: state.ship_x + state.ship_angle.cos() * SHIP_RADIUS,
-                y: state.ship_y + state.ship_angle.sin() * SHIP_RADIUS,
+                x: state.ship_x + state.ship_angle.cos() * SHIP_HIT_RADIUS,
+                y: state.ship_y + state.ship_angle.sin() * SHIP_HIT_RADIUS,
                 angle: state.ship_angle,
                 time_left: BULLET_TIMER_LIMIT,
             })
@@ -198,7 +203,7 @@ fn update(state: &mut GameState, dt: f32) {
         if are_circles_intersecting(
             state.ship_x,
             state.ship_y,
-            SHIP_RADIUS,
+            SHIP_HIT_RADIUS,
             asteroid.x,
             asteroid.y,
             ASTEROID_STAGES[asteroid.stage].radius,
@@ -212,7 +217,7 @@ fn update(state: &mut GameState, dt: f32) {
     }
 }
 
-fn draw_ship(x: f32, y: f32, angle: f32, radius: f32, color: color::Color) {
+fn draw_ship(x: f32, y: f32, angle: f32, radius: f32, has_exhaust: bool, color: color::Color) {
     use macroquad::prelude::{DrawMode, Vertex};
     let gl = unsafe { window::get_internal_gl().quad_gl };
     let vertices = [
@@ -242,6 +247,27 @@ fn draw_ship(x: f32, y: f32, angle: f32, radius: f32, color: color::Color) {
     gl.texture(None);
     gl.draw_mode(DrawMode::Triangles);
     gl.geometry(&vertices, &indices);
+    if has_exhaust {
+        shapes::draw_triangle(
+            math::Vec2::new(
+                x + (angle + PI * 0.85).cos() * radius * 0.55,
+                y + (angle + PI * 0.85).sin() * radius * 0.55,
+            ),
+            math::Vec2::new(
+                x + (angle + PI * rand::gen_range(0.98, 1.02)).cos()
+                    * radius
+                    * rand::gen_range(0.75, 1.25),
+                y + (angle + PI * rand::gen_range(0.98, 1.02)).sin()
+                    * radius
+                    * rand::gen_range(0.75, 1.25),
+            ),
+            math::Vec2::new(
+                x + (angle + PI * 1.15).cos() * radius * 0.55,
+                y + (angle + PI * 1.15).sin() * radius * 0.55,
+            ),
+            color::Color::new(1.0, 1.0, 1.0, 1.0),
+        );
+    }
 }
 
 fn draw_polygon(draw_points: &[(f32, f32)], offset_x: f32, offset_y: f32, color: color::Color) {
@@ -270,7 +296,8 @@ fn draw(state: &mut GameState) {
                 state.ship_x + offset_x,
                 state.ship_y + offset_y,
                 state.ship_angle,
-                SHIP_RADIUS,
+                SHIP_DRAW_RADIUS,
+                state.ship_has_exhaust,
                 color,
             );
             for bullet in &state.bullets {
@@ -292,12 +319,6 @@ fn draw(state: &mut GameState) {
                     asteroid.y + offset_y,
                     color,
                 );
-                /*shapes::draw_circle(
-                    asteroid.x + offset_x,
-                    asteroid.y + offset_y,
-                    ASTEROID_STAGES[asteroid.stage].radius,
-                    color,
-                );*/
             }
         }
     }
