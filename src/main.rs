@@ -1,6 +1,7 @@
 use std::f32::consts::PI;
 
 use macroquad::{color, input, math, miniquad::date, rand, shapes, text, time, window};
+use macroquad_particles as particles;
 
 const ARENA_WIDTH: f32 = 800.0;
 const ARENA_HEIGHT: f32 = 600.0;
@@ -33,6 +34,15 @@ struct Bullet {
     x: f32,
     y: f32,
     angle: f32,
+    time_left: f32,
+}
+
+struct Explosion {
+    emitter: particles::Emitter,
+    x: f32,
+    y: f32,
+    angle: f32,
+    speed: f32,
     time_left: f32,
 }
 
@@ -86,6 +96,7 @@ struct GameState {
     bullets: Vec<Bullet>,
     bullet_timer: f32,
     asteroids: Vec<Asteroid>,
+    explosions: Vec<Explosion>,
 }
 
 fn reset(state: &mut GameState) {
@@ -161,6 +172,8 @@ fn update(state: &mut GameState, dt: f32) {
                 let bullet = &state.bullets[bullet_index];
                 let asteroid_x = state.asteroids[asteroid_index].x;
                 let asteroid_y = state.asteroids[asteroid_index].y;
+                let asteroid_angle = state.asteroids[asteroid_index].angle;
+                let asteroid_speed = state.asteroids[asteroid_index].speed;
                 let asteroid_stage = state.asteroids[asteroid_index].stage;
                 if are_circles_intersecting(
                     bullet.x,
@@ -171,6 +184,15 @@ fn update(state: &mut GameState, dt: f32) {
                     ASTEROID_STAGES[asteroid_stage].radius,
                 ) {
                     state.bullets.remove(bullet_index);
+                    let expl_emitter = particles::Emitter::new(explosion());
+                    state.explosions.push(Explosion {
+                        time_left: expl_emitter.config.lifetime,
+                        emitter: expl_emitter,
+                        x: asteroid_x,
+                        y: asteroid_y,
+                        angle: asteroid_angle,
+                        speed: asteroid_speed * 1.5,
+                    });
                     if asteroid_stage > 0 {
                         let asteroid_1 = Asteroid::new(asteroid_x, asteroid_y, asteroid_stage - 1);
                         let asteroid_2 = Asteroid::new(asteroid_x, asteroid_y, asteroid_stage - 1);
@@ -212,6 +234,12 @@ fn update(state: &mut GameState, dt: f32) {
             break;
         }
     }
+    state.explosions.retain(|e| e.time_left - dt > 0.0);
+    for expl in &mut state.explosions {
+        expl.time_left -= dt;
+        expl.x = (expl.x + expl.angle.cos() * expl.speed * dt).rem_euclid(ARENA_WIDTH);
+        expl.y = (expl.y + expl.angle.sin() * expl.speed * dt).rem_euclid(ARENA_HEIGHT);
+    }
     if state.asteroids.len() == 0 {
         reset(state);
     }
@@ -249,11 +277,11 @@ fn draw_ship(x: f32, y: f32, angle: f32, radius: f32, has_exhaust: bool, color: 
     gl.geometry(&vertices, &indices);
     if has_exhaust {
         shapes::draw_triangle(
-            math::Vec2::new(
+            math::vec2(
                 x + (angle + PI * 0.85).cos() * radius * 0.55,
                 y + (angle + PI * 0.85).sin() * radius * 0.55,
             ),
-            math::Vec2::new(
+            math::vec2(
                 x + (angle + PI * rand::gen_range(0.98, 1.02)).cos()
                     * radius
                     * rand::gen_range(0.75, 1.25),
@@ -261,7 +289,7 @@ fn draw_ship(x: f32, y: f32, angle: f32, radius: f32, has_exhaust: bool, color: 
                     * radius
                     * rand::gen_range(0.75, 1.25),
             ),
-            math::Vec2::new(
+            math::vec2(
                 x + (angle + PI * 1.15).cos() * radius * 0.55,
                 y + (angle + PI * 1.15).sin() * radius * 0.55,
             ),
@@ -287,6 +315,9 @@ fn draw_polygon(draw_points: &[(f32, f32)], offset_x: f32, offset_y: f32, color:
 
 fn draw(state: &mut GameState) {
     let mut color;
+    for explosion in &mut state.explosions {
+        explosion.emitter.draw(math::vec2(explosion.x, explosion.y));
+    }
     for y in -1..=1 {
         for x in -1..=1 {
             let offset_x = x as f32 * ARENA_WIDTH;
@@ -333,6 +364,8 @@ fn draw(state: &mut GameState) {
         ("ship_velocity_y", state.ship_velocity_y),
         ("bullet_0_x", state.bullets.get(0).map_or(0.0, |b| b.x)),
         ("bullet_0_y", state.bullets.get(0).map_or(0.0, |b| b.y)),
+        ("expl_0_x", state.explosions.get(0).map_or(0.0, |e| e.x)),
+        ("expl_0_y", state.explosions.get(0).map_or(0.0, |e| e.y)),
     ]
     .iter()
     .enumerate()
@@ -345,6 +378,28 @@ fn draw(state: &mut GameState) {
             color,
         )
     });
+}
+
+fn explosion() -> particles::EmitterConfig {
+    particles::EmitterConfig {
+        one_shot: true,
+        lifetime: 0.65,
+        explosiveness: 1.0,
+        amount: 8,
+        local_coords: true,
+        initial_direction: math::vec2(0.0, 1.0),
+        initial_direction_spread: 2.0 * PI,
+        initial_velocity: 150.0,
+        initial_velocity_randomness: 0.4,
+        size: 3.0,
+        shape: particles::ParticleShape::Circle { subdivisions: 8 },
+        colors_curve: particles::ColorCurve {
+            start: color::Color::new(0.6, 0.6, 0.0, 1.0),
+            mid: color::Color::new(0.6, 0.6, 0.0, 1.0),
+            end: color::Color::new(0.0, 0.0, 0.0, 1.0),
+        },
+        ..Default::default()
+    }
 }
 
 fn window_conf() -> window::Conf {
