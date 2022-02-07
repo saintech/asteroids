@@ -8,13 +8,20 @@ const ARENA_HEIGHT: f32 = 600.0;
 const SHIP_MAX_SPEED: f32 = 400.0;
 const SHIP_ACCEL: f32 = 500.0;
 const SHIP_DECEL: f32 = 0.2;
-const SHIP_DRAW_RADIUS: f32 = 16.0;
-const SHIP_HIT_RADIUS: f32 = 10.0;
+const SHIP_DRAW_RADIUS: f32 = 14.0;
+const SHIP_HIT_RADIUS: f32 = 9.0;
 const SHIP_TURN_SPEED: f32 = 6.0;
-const BULLET_SPEED: f32 = 600.0;
+const SHIP_BULLET_TIMER_LIMIT: f32 = 0.8;
+const SHIP_BULLET_SPEED: f32 = 600.0;
 const BULLET_COOLDOWN: f32 = 0.3;
-const BULLET_TIMER_LIMIT: f32 = 0.8;
 const BULLET_RADIUS: f32 = 3.0;
+const ALIEN_DRAW_RADIUS_BY_KIND: &[f32] = &[14.0, 10.0];
+const ALIEN_HIT_RADIUS_BY_KIND: &[f32] = &[10.0, 7.0];
+const ALIEN_BULLET_TIMER_LIMIT_BY_KIND: &[f32] = &[0.9, 1.3];
+const ALIEN_BULLET_SPEED: f32 = 250.0;
+const ALIEN_SPAWN_PERIOD: f32 = 30.0;
+const ALIEN_SHOOT_PERIOD: f32 = 1.3;
+const ALIEN_SHIFT_PERIOD: f32 = 1.0;
 const ASTEROID_STAGES: &[AsteroidStage] = &[
     AsteroidStage {
         max_speed: 180.0,
@@ -22,7 +29,7 @@ const ASTEROID_STAGES: &[AsteroidStage] = &[
     },
     AsteroidStage {
         max_speed: 120.0,
-        radius: 33.0,
+        radius: 28.0,
     },
     AsteroidStage {
         max_speed: 60.0,
@@ -34,7 +41,9 @@ struct Bullet {
     x: f32,
     y: f32,
     angle: f32,
+    speed: f32,
     time_left: f32,
+    from_enemy: bool,
 }
 
 struct Explosion {
@@ -51,7 +60,54 @@ struct AsteroidStage {
     radius: f32,
 }
 
-#[derive(Default)]
+#[derive(Copy, Clone)]
+enum AlienDirection {
+    ToRight,
+    ToLeft,
+}
+
+#[derive(Copy, Clone)]
+enum AlienKind {
+    Big,
+    Small,
+}
+
+struct Alien {
+    x: f32,
+    y: f32,
+    kind: AlienKind,
+    direction: AlienDirection,
+    angle: f32,
+    speed: f32,
+    shoot_timer: f32,
+    shift_timer: f32,
+}
+
+impl Alien {
+    pub fn new() -> Self {
+        let y = ARENA_HEIGHT * rand::gen_range(0.15, 0.85);
+        let direction =
+            vec![AlienDirection::ToRight, AlienDirection::ToLeft].remove(rand::gen_range(0, 2));
+        let x = ARENA_WIDTH * direction as u32 as f32;
+        let angle = PI * direction as u32 as f32;
+        let kind = if rand::gen_range(0_u32, 10) < 3 {
+            AlienKind::Small
+        } else {
+            AlienKind::Big
+        };
+        Alien {
+            x,
+            y,
+            kind,
+            direction,
+            angle,
+            speed: rand::gen_range(80.0, 100.0),
+            shoot_timer: ALIEN_SHOOT_PERIOD,
+            shift_timer: 0.0,
+        }
+    }
+}
+
 struct Asteroid {
     draw_points: Vec<(f32, f32)>,
     x: f32,
@@ -100,6 +156,8 @@ struct GameState {
     bullet_timer: f32,
     asteroids: Vec<Asteroid>,
     explosions: Vec<Explosion>,
+    alien_timer: f32,
+    aliens: Vec<Alien>,
 }
 
 fn reset(state: &mut GameState) {
@@ -115,6 +173,7 @@ fn reset(state: &mut GameState) {
     state.bullet_timer = BULLET_COOLDOWN;
     state.asteroids = Default::default();
     state.explosions = Default::default();
+    state.aliens = Default::default();
     let start_stage = ASTEROID_STAGES.len() - 1;
     while state.asteroids.len() < 5 {
         let x = rand::gen_range(0.0, ARENA_WIDTH);
@@ -129,6 +188,7 @@ fn reset(state: &mut GameState) {
 }
 
 fn load(state: &mut GameState) {
+    state.alien_timer = ALIEN_SPAWN_PERIOD;
     reset(state);
 }
 
@@ -138,6 +198,7 @@ fn key_pressed(_state: &mut GameState, _key: input::KeyCode) {
 
 fn update(state: &mut GameState, dt: f32) {
     state.pause_timer = f32::max(0.0, state.pause_timer - dt);
+    state.alien_timer = f32::max(0.0, state.alien_timer - dt);
     if input::is_key_down(input::KeyCode::Right) && state.pause_timer == 0.0 {
         state.ship_angle = state.ship_angle + SHIP_TURN_SPEED * dt;
     }
@@ -158,20 +219,51 @@ fn update(state: &mut GameState, dt: f32) {
     }
     state.ship_x = (state.ship_x + state.ship_velocity_x * dt).rem_euclid(ARENA_WIDTH);
     state.ship_y = (state.ship_y + state.ship_velocity_y * dt).rem_euclid(ARENA_HEIGHT);
-    for bullet_index in (0..state.bullets.len()).rev() {
+    state.aliens.retain(|a| match a.direction {
+        AlienDirection::ToRight => a.x - 10.0 < ARENA_WIDTH,
+        AlienDirection::ToLeft => a.x + 10.0 > 0.0,
+    });
+    for alien in &mut state.aliens {
+        alien.x = alien.x + alien.angle.cos() * alien.speed * dt;
+        alien.y = (alien.y + alien.angle.sin() * alien.speed * dt).rem_euclid(ARENA_HEIGHT);
+        alien.shift_timer -= dt;
+        if alien.shift_timer <= 0.0 {
+            alien.shift_timer = ALIEN_SHIFT_PERIOD;
+            let d_angle = PI / 4.0;
+            let origin_angle = PI * alien.direction as u32 as f32;
+            alien.angle += d_angle * rand::gen_range(-2_i32, 2) as f32;
+            alien.angle = alien
+                .angle
+                .clamp(origin_angle - d_angle, origin_angle + d_angle);
+        }
+        alien.shoot_timer -= dt;
+        if alien.shoot_timer <= 0.0 {
+            alien.shoot_timer = ALIEN_SHOOT_PERIOD;
+            let bullet_time_left = ALIEN_BULLET_TIMER_LIMIT_BY_KIND[alien.kind as usize];
+            let radius = ALIEN_HIT_RADIUS_BY_KIND[alien.kind as usize] / 2.0;
+            let shoot_angle = f32::atan2(state.ship_y - alien.y, state.ship_x - alien.x);
+            state.bullets.push(Bullet {
+                x: alien.x + shoot_angle.cos() * radius,
+                y: alien.y + shoot_angle.sin() * radius,
+                angle: shoot_angle,
+                speed: ALIEN_BULLET_SPEED,
+                time_left: bullet_time_left,
+                from_enemy: true,
+            })
+        }
+    }
+    'bullets: for bullet_index in (0..state.bullets.len()).rev() {
         let bullet = &mut state.bullets[bullet_index];
         bullet.time_left = bullet.time_left - dt;
         if bullet.time_left <= 0.0 {
             state.bullets.remove(bullet_index);
         } else {
-            bullet.x = (bullet.x + bullet.angle.cos() * BULLET_SPEED * dt).rem_euclid(ARENA_WIDTH);
-            bullet.y = (bullet.y + bullet.angle.sin() * BULLET_SPEED * dt).rem_euclid(ARENA_HEIGHT);
+            bullet.x = (bullet.x + bullet.angle.cos() * bullet.speed * dt).rem_euclid(ARENA_WIDTH);
+            bullet.y = (bullet.y + bullet.angle.sin() * bullet.speed * dt).rem_euclid(ARENA_HEIGHT);
+            let bullet = &state.bullets[bullet_index];
             for asteroid_index in (0..state.asteroids.len()).rev() {
-                let bullet = &state.bullets[bullet_index];
                 let asteroid_x = state.asteroids[asteroid_index].x;
                 let asteroid_y = state.asteroids[asteroid_index].y;
-                let asteroid_angle = state.asteroids[asteroid_index].angle;
-                let asteroid_speed = state.asteroids[asteroid_index].speed;
                 let asteroid_stage = state.asteroids[asteroid_index].stage;
                 if are_circles_intersecting(
                     bullet.x,
@@ -182,25 +274,64 @@ fn update(state: &mut GameState, dt: f32) {
                     ASTEROID_STAGES[asteroid_stage].radius,
                 ) {
                     state.bullets.remove(bullet_index);
-                    let expl_emitter = particles::Emitter::new(asteroid_explosion());
-                    state.explosions.push(Explosion {
-                        time_left: expl_emitter.config.lifetime,
-                        emitter: expl_emitter,
-                        x: asteroid_x,
-                        y: asteroid_y,
-                        angle: asteroid_angle,
-                        speed: asteroid_speed * 1.5,
-                    });
-                    if asteroid_stage > 0 {
-                        let asteroid_1 = Asteroid::new(asteroid_x, asteroid_y, asteroid_stage - 1);
-                        let asteroid_2 = Asteroid::new(asteroid_x, asteroid_y, asteroid_stage - 1);
-                        state.asteroids.push(asteroid_1);
-                        state.asteroids.push(asteroid_2);
-                    }
-                    state.asteroids.remove(asteroid_index);
-                    break;
+                    explode_asteroid(&mut state.asteroids, asteroid_index, &mut state.explosions);
+                    break 'bullets;
                 }
             }
+            if bullet.from_enemy
+                && are_circles_intersecting(
+                    bullet.x,
+                    bullet.y,
+                    BULLET_RADIUS,
+                    state.ship_x,
+                    state.ship_y,
+                    SHIP_HIT_RADIUS,
+                )
+                && !state.ship_is_dead
+            {
+                state.bullets.remove(bullet_index);
+                let color = color::Color::new(0.0, 1.0, 1.0, 1.0);
+                let expl_emitter = particles::Emitter::new(ship_explosion(color));
+                state.explosions.push(Explosion {
+                    time_left: expl_emitter.config.lifetime,
+                    emitter: expl_emitter,
+                    x: state.ship_x,
+                    y: state.ship_y,
+                    angle: state.ship_angle,
+                    speed: 0.0,
+                });
+                state.ship_is_dead = true;
+                state.pause_timer = 2.0;
+                break;
+            }
+            let bullets = &mut state.bullets;
+            let explosions = &mut state.explosions;
+            state.aliens.retain(|alien| {
+                let bullet = &bullets[bullet_index];
+                let is_hit = !bullet.from_enemy
+                    && are_circles_intersecting(
+                        bullet.x,
+                        bullet.y,
+                        BULLET_RADIUS,
+                        alien.x,
+                        alien.y,
+                        ALIEN_HIT_RADIUS_BY_KIND[alien.kind as usize],
+                    );
+                if is_hit {
+                    bullets.remove(bullet_index);
+                    let color = color::Color::new(0.0, 1.0, 0.0, 1.0);
+                    let expl_emitter = particles::Emitter::new(ship_explosion(color));
+                    explosions.push(Explosion {
+                        time_left: expl_emitter.config.lifetime,
+                        emitter: expl_emitter,
+                        x: alien.x,
+                        y: alien.y,
+                        angle: alien.angle,
+                        speed: alien.speed,
+                    });
+                }
+                !is_hit
+            });
         }
     }
     state.bullet_timer = state.bullet_timer + dt;
@@ -208,14 +339,17 @@ fn update(state: &mut GameState, dt: f32) {
         if state.bullet_timer >= BULLET_COOLDOWN {
             state.bullet_timer = 0.0;
             state.bullets.push(Bullet {
-                x: state.ship_x + state.ship_angle.cos() * SHIP_HIT_RADIUS,
-                y: state.ship_y + state.ship_angle.sin() * SHIP_HIT_RADIUS,
+                x: state.ship_x + state.ship_angle.cos() * SHIP_DRAW_RADIUS,
+                y: state.ship_y + state.ship_angle.sin() * SHIP_DRAW_RADIUS,
                 angle: state.ship_angle,
-                time_left: BULLET_TIMER_LIMIT,
-            })
+                speed: SHIP_BULLET_SPEED,
+                time_left: SHIP_BULLET_TIMER_LIMIT,
+                from_enemy: false,
+            });
         }
     }
-    for asteroid in &mut state.asteroids {
+    for asteroid_index in (0..state.asteroids.len()).rev() {
+        let asteroid = &mut state.asteroids[asteroid_index];
         asteroid.x =
             (asteroid.x + asteroid.angle.cos() * asteroid.speed * dt).rem_euclid(ARENA_WIDTH);
         asteroid.y =
@@ -229,7 +363,9 @@ fn update(state: &mut GameState, dt: f32) {
             ASTEROID_STAGES[asteroid.stage].radius,
         ) && !state.ship_is_dead
         {
-            let expl_emitter = particles::Emitter::new(ship_explosion());
+            explode_asteroid(&mut state.asteroids, asteroid_index, &mut state.explosions);
+            let color = color::Color::new(0.0, 1.0, 1.0, 1.0);
+            let expl_emitter = particles::Emitter::new(ship_explosion(color));
             state.explosions.push(Explosion {
                 time_left: expl_emitter.config.lifetime,
                 emitter: expl_emitter,
@@ -240,7 +376,37 @@ fn update(state: &mut GameState, dt: f32) {
             });
             state.ship_is_dead = true;
             state.pause_timer = 2.0;
+            break;
         }
+        let asteroid = &state.asteroids[asteroid_index];
+        let (asteroid_x, asteroid_y) = (asteroid.x, asteroid.y);
+        let asteroid_radius = ASTEROID_STAGES[asteroid.stage].radius;
+        let explosions = &mut state.explosions;
+        let asteroids = &mut state.asteroids;
+        state.aliens.retain(|alien| {
+            let is_hit = are_circles_intersecting(
+                alien.x,
+                alien.y,
+                ALIEN_HIT_RADIUS_BY_KIND[alien.kind as usize],
+                asteroid_x,
+                asteroid_y,
+                asteroid_radius,
+            );
+            if is_hit {
+                explode_asteroid(asteroids, asteroid_index, explosions);
+                let color = color::Color::new(0.0, 1.0, 0.0, 1.0);
+                let expl_emitter = particles::Emitter::new(ship_explosion(color));
+                explosions.push(Explosion {
+                    time_left: expl_emitter.config.lifetime,
+                    emitter: expl_emitter,
+                    x: alien.x,
+                    y: alien.y,
+                    angle: alien.angle,
+                    speed: alien.speed * 0.3,
+                });
+            }
+            !is_hit
+        });
     }
     state.explosions.retain(|e| e.time_left - dt > 0.0);
     for expl in &mut state.explosions {
@@ -248,10 +414,14 @@ fn update(state: &mut GameState, dt: f32) {
         expl.x = (expl.x + expl.angle.cos() * expl.speed * dt).rem_euclid(ARENA_WIDTH);
         expl.y = (expl.y + expl.angle.sin() * expl.speed * dt).rem_euclid(ARENA_HEIGHT);
     }
+    if state.alien_timer == 0.0 && !state.game_over {
+        state.alien_timer = ALIEN_SPAWN_PERIOD;
+        state.aliens.push(Alien::new());
+    }
     if state.game_over && state.pause_timer == 0.0 {
         reset(state);
     }
-    if state.asteroids.len() == 0 && state.pause_timer == 0.0 {
+    if state.asteroids.len() == 0 && state.aliens.len() == 0 && state.pause_timer == 0.0 {
         state.pause_timer = 2.0;
         state.game_over = true;
     }
@@ -349,7 +519,11 @@ fn draw(state: &mut GameState) {
                 );
             }
             for bullet in &state.bullets {
-                color = color::Color::new(0.0, 1.0, 0.0, 1.0);
+                color = if bullet.from_enemy {
+                    color::Color::new(1.0, 0.0, 1.0, 1.0)
+                } else {
+                    color::Color::new(1.0, 0.0, 0.0, 1.0)
+                };
                 shapes::draw_line(
                     bullet.x + offset_x,
                     bullet.y + offset_y,
@@ -368,6 +542,18 @@ fn draw(state: &mut GameState) {
                     color,
                 );
             }
+            for alien in &state.aliens {
+                let radius = ALIEN_DRAW_RADIUS_BY_KIND[alien.kind as usize];
+                color = color::Color::new(0.0, 1.0, 0.0, 1.0);
+                shapes::draw_poly(
+                    alien.x,
+                    alien.y + offset_y,
+                    6,
+                    radius,
+                    (alien.x * 2.0) % 360.0,
+                    color,
+                );
+            }
         }
     }
 
@@ -383,6 +569,8 @@ fn draw(state: &mut GameState) {
         ("bullet_0_y", state.bullets.get(0).map_or(0.0, |b| b.y)),
         ("expl_0_x", state.explosions.get(0).map_or(0.0, |e| e.x)),
         ("expl_0_y", state.explosions.get(0).map_or(0.0, |e| e.y)),
+        ("alien_0_x", state.aliens.get(0).map_or(0.0, |a| a.x)),
+        ("alien_0_y", state.aliens.get(0).map_or(0.0, |a| a.y)),
     ]
     .iter()
     .enumerate()
@@ -408,6 +596,27 @@ fn are_circles_intersecting(
     return (a_x - b_x).powf(2.0) + (a_y - b_y).powf(2.0) <= (a_radius + b_radius).powf(2.0);
 }
 
+fn explode_asteroid(
+    asteroids: &mut Vec<Asteroid>,
+    asteroid_index: usize,
+    explosions: &mut Vec<Explosion>,
+) {
+    let asteroid = asteroids.remove(asteroid_index);
+    let expl_emitter = particles::Emitter::new(asteroid_explosion());
+    explosions.push(Explosion {
+        time_left: expl_emitter.config.lifetime,
+        emitter: expl_emitter,
+        x: asteroid.x,
+        y: asteroid.y,
+        angle: asteroid.angle,
+        speed: asteroid.speed * 1.5,
+    });
+    if asteroid.stage > 0 {
+        asteroids.push(Asteroid::new(asteroid.x, asteroid.y, asteroid.stage - 1));
+        asteroids.push(Asteroid::new(asteroid.x, asteroid.y, asteroid.stage - 1));
+    }
+}
+
 fn asteroid_explosion() -> particles::EmitterConfig {
     particles::EmitterConfig {
         one_shot: true,
@@ -430,7 +639,7 @@ fn asteroid_explosion() -> particles::EmitterConfig {
     }
 }
 
-fn ship_explosion() -> particles::EmitterConfig {
+fn ship_explosion(color: color::Color) -> particles::EmitterConfig {
     particles::EmitterConfig {
         one_shot: true,
         lifetime: 1.5,
@@ -444,8 +653,8 @@ fn ship_explosion() -> particles::EmitterConfig {
         size: 5.0,
         shape: particles::ParticleShape::Circle { subdivisions: 6 },
         colors_curve: particles::ColorCurve {
-            start: color::Color::new(0.0, 1.0, 1.0, 1.0),
-            mid: color::Color::new(0.0, 1.0, 1.0, 1.0),
+            start: color,
+            mid: color,
             end: color::Color::new(0.0, 0.0, 0.0, 1.0),
         },
         ..Default::default()
