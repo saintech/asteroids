@@ -344,51 +344,19 @@ fn move_system_update(game: &mut Game, dt: f32) {
         _ => {
             if let Some(Ship { position, body, .. }) = &mut game.ship {
                 body.speed -= body.speed * SHIP_DECEL * dt;
-                *position += math::vec2(
-                    body.angle.cos() * body.speed * dt,
-                    body.angle.sin() * body.speed * dt,
-                );
-                *position = math::vec2(
-                    position.x.rem_euclid(ARENA_WIDTH),
-                    position.y.rem_euclid(ARENA_HEIGHT),
-                );
+                move_position(position, body, dt, true, true);
             }
             for Alien { position, body, .. } in &mut game.aliens {
-                *position += math::vec2(
-                    body.angle.cos() * body.speed * dt,
-                    body.angle.sin() * body.speed * dt,
-                );
-                position.y = position.y.rem_euclid(ARENA_HEIGHT);
+                move_position(position, body, dt, false, true);
             }
             for Bullet { position, body, .. } in &mut game.bullets {
-                *position += math::vec2(
-                    body.angle.cos() * body.speed * dt,
-                    body.angle.sin() * body.speed * dt,
-                );
-                *position = math::vec2(
-                    position.x.rem_euclid(ARENA_WIDTH),
-                    position.y.rem_euclid(ARENA_HEIGHT),
-                );
+                move_position(position, body, dt, true, true);
             }
             for Asteroid { position, body, .. } in &mut game.asteroids {
-                *position += math::vec2(
-                    body.angle.cos() * body.speed * dt,
-                    body.angle.sin() * body.speed * dt,
-                );
-                *position = math::vec2(
-                    position.x.rem_euclid(ARENA_WIDTH),
-                    position.y.rem_euclid(ARENA_HEIGHT),
-                );
+                move_position(position, body, dt, true, true);
             }
             for Explosion { position, body, .. } in &mut game.explosions {
-                *position += math::vec2(
-                    body.angle.cos() * body.speed * dt,
-                    body.angle.sin() * body.speed * dt,
-                );
-                *position = math::vec2(
-                    position.x.rem_euclid(ARENA_WIDTH),
-                    position.y.rem_euclid(ARENA_HEIGHT),
-                );
+                move_position(position, body, dt, true, true);
             }
         }
     }
@@ -832,6 +800,16 @@ fn sum_vectors(v1_magnitude: f32, v1_angle: f32, v2_magnitude: f32, v2_angle: f3
     }
     let result_angle = (v1_angle + d_angle_r).rem_euclid(2.0 * PI);
     (result_magnitude, result_angle)
+}
+
+fn move_position(position: &mut math::Vec2, body: &Body, dt: f32, wrap_x: bool, wrap_y: bool) {
+    *position += math::vec2(body.angle.cos() * body.speed * dt, body.angle.sin() * body.speed * dt);
+    if wrap_x {
+        position.x = position.x.rem_euclid(ARENA_WIDTH);
+    }
+    if wrap_y {
+        position.y = position.y.rem_euclid(ARENA_HEIGHT);
+    }
 }
 
 fn asteroid_explosion() -> particles::EmitterConfig {
