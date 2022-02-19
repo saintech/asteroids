@@ -1,12 +1,7 @@
 use std::collections::HashSet;
 use std::f32::consts::PI;
 
-use macroquad::{
-    color, input, math,
-    math::{vec2, Vec2},
-    miniquad::date,
-    rand, shapes, text, time, window,
-};
+use macroquad::{color, input, math, miniquad::date, rand, shapes, text, time, window};
 use macroquad_particles as particles;
 
 const ARENA_WIDTH: f32 = 800.0;
@@ -45,7 +40,7 @@ struct AsteroidStage {
 enum SpriteVariant {
     Bullet,
     Ship { has_exhaust: bool },
-    Asteroid { draw_points: Vec<(f32, f32)> },
+    Asteroid { draw_points: Vec<math::Vec2> },
     Alien,
 }
 
@@ -122,7 +117,7 @@ impl Alien {
             AlienKind::Big
         };
         Alien {
-            position: vec2(x, y),
+            position: math::vec2(x, y),
             sprite: Sprite {
                 variant: SpriteVariant::Alien,
                 size: ALIEN_DRAW_RADIUS_BY_KIND[kind as usize],
@@ -153,20 +148,20 @@ struct Asteroid {
 }
 
 impl Asteroid {
-    pub fn new(x: f32, y: f32, stage: usize) -> Self {
+    pub fn new(position: math::Vec2, stage: usize) -> Self {
         let radius = ASTEROID_STAGES[stage].radius + 5.0;
         let max_speed = ASTEROID_STAGES[stage].max_speed;
         let mut draw_points = vec![];
         let mut draw_angle: f32 = 0.0;
         while draw_angle < PI * 2.0 {
             let distance = rand::gen_range(0.75, 1.0) * radius;
-            draw_points.push((draw_angle.cos() * distance, draw_angle.sin() * distance));
+            draw_points.push(math::vec2(draw_angle.cos() * distance, draw_angle.sin() * distance));
             draw_angle += rand::gen_range(0.1, 0.7);
         }
         let angle = rand::gen_range(0.0, 2.0 * PI);
         let speed = max_speed * rand::gen_range(0.5, 1.0);
         Asteroid {
-            position: vec2(x, y),
+            position,
             sprite: Sprite {
                 variant: SpriteVariant::Asteroid { draw_points },
                 size: f32::NAN,
@@ -270,10 +265,8 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
             let shoot_angle =
                 f32::atan2(ship.position.y - alien.position.y, ship.position.x - alien.position.x);
             game.bullets.push(Bullet {
-                position: vec2(
-                    alien.position.x + shoot_angle.cos() * radius,
-                    alien.position.y + shoot_angle.sin() * radius,
-                ),
+                position: alien.position
+                    + math::vec2(shoot_angle.cos() * radius, shoot_angle.sin() * radius),
                 sprite: Sprite {
                     variant: SpriteVariant::Bullet,
                     size: f32::NAN,
@@ -349,35 +342,53 @@ fn move_system_update(game: &mut Game, dt: f32) {
     match game.state {
         GameState::Pause => (),
         _ => {
-            if let Some(ship) = &mut game.ship {
-                ship.body.speed -= ship.body.speed * SHIP_DECEL * dt;
-                ship.position.x += ship.body.angle.cos() * ship.body.speed * dt;
-                ship.position.x = ship.position.x.rem_euclid(ARENA_WIDTH);
-                ship.position.y += ship.body.angle.sin() * ship.body.speed * dt;
-                ship.position.y = ship.position.y.rem_euclid(ARENA_HEIGHT);
+            if let Some(Ship { position, body, .. }) = &mut game.ship {
+                body.speed -= body.speed * SHIP_DECEL * dt;
+                *position += math::vec2(
+                    body.angle.cos() * body.speed * dt,
+                    body.angle.sin() * body.speed * dt,
+                );
+                *position = math::vec2(
+                    position.x.rem_euclid(ARENA_WIDTH),
+                    position.y.rem_euclid(ARENA_HEIGHT),
+                );
             }
-            for alien in &mut game.aliens {
-                alien.position.x += alien.body.angle.cos() * alien.body.speed * dt;
-                alien.position.y += alien.body.angle.sin() * alien.body.speed * dt;
-                alien.position.y = alien.position.y.rem_euclid(ARENA_HEIGHT);
+            for Alien { position, body, .. } in &mut game.aliens {
+                *position += math::vec2(
+                    body.angle.cos() * body.speed * dt,
+                    body.angle.sin() * body.speed * dt,
+                );
+                position.y = position.y.rem_euclid(ARENA_HEIGHT);
             }
-            for bullet in &mut game.bullets {
-                bullet.position.x += bullet.body.angle.cos() * bullet.body.speed * dt;
-                bullet.position.x = bullet.position.x.rem_euclid(ARENA_WIDTH);
-                bullet.position.y += bullet.body.angle.sin() * bullet.body.speed * dt;
-                bullet.position.y = bullet.position.y.rem_euclid(ARENA_HEIGHT);
+            for Bullet { position, body, .. } in &mut game.bullets {
+                *position += math::vec2(
+                    body.angle.cos() * body.speed * dt,
+                    body.angle.sin() * body.speed * dt,
+                );
+                *position = math::vec2(
+                    position.x.rem_euclid(ARENA_WIDTH),
+                    position.y.rem_euclid(ARENA_HEIGHT),
+                );
             }
-            for asteroid in &mut game.asteroids {
-                asteroid.position.x += asteroid.body.angle.cos() * asteroid.body.speed * dt;
-                asteroid.position.x = asteroid.position.x.rem_euclid(ARENA_WIDTH);
-                asteroid.position.y += asteroid.body.angle.sin() * asteroid.body.speed * dt;
-                asteroid.position.y = asteroid.position.y.rem_euclid(ARENA_HEIGHT);
+            for Asteroid { position, body, .. } in &mut game.asteroids {
+                *position += math::vec2(
+                    body.angle.cos() * body.speed * dt,
+                    body.angle.sin() * body.speed * dt,
+                );
+                *position = math::vec2(
+                    position.x.rem_euclid(ARENA_WIDTH),
+                    position.y.rem_euclid(ARENA_HEIGHT),
+                );
             }
-            for explosion in &mut game.explosions {
-                explosion.position.x += explosion.body.angle.cos() * explosion.body.speed * dt;
-                explosion.position.x = explosion.position.x.rem_euclid(ARENA_WIDTH);
-                explosion.position.y += explosion.body.angle.sin() * explosion.body.speed * dt;
-                explosion.position.y = explosion.position.y.rem_euclid(ARENA_HEIGHT);
+            for Explosion { position, body, .. } in &mut game.explosions {
+                *position += math::vec2(
+                    body.angle.cos() * body.speed * dt,
+                    body.angle.sin() * body.speed * dt,
+                );
+                *position = math::vec2(
+                    position.x.rem_euclid(ARENA_WIDTH),
+                    position.y.rem_euclid(ARENA_HEIGHT),
+                );
             }
         }
     }
@@ -387,11 +398,9 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
     for alien in &mut game.aliens {
         if let Some(ship) = game.ship.as_mut() {
             if are_circles_intersecting(
-                alien.position.x,
-                alien.position.y,
+                alien.position,
                 alien.body.radius,
-                ship.position.x,
-                ship.position.y,
+                ship.position,
                 ship.body.radius,
             ) {
                 alien.body.is_hit = true;
@@ -402,11 +411,9 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
     for bullet in &mut game.bullets {
         if let Some(ship) = game.ship.as_mut() {
             if are_circles_intersecting(
-                bullet.position.x,
-                bullet.position.y,
+                bullet.position,
                 bullet.body.radius,
-                ship.position.x,
-                ship.position.y,
+                ship.position,
                 ship.body.radius,
             ) && bullet.from_enemy
             {
@@ -416,11 +423,9 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
         }
         for alien in &mut game.aliens {
             if are_circles_intersecting(
-                bullet.position.x,
-                bullet.position.y,
+                bullet.position,
                 bullet.body.radius,
-                alien.position.x,
-                alien.position.y,
+                alien.position,
                 alien.body.radius,
             ) && !bullet.from_enemy
             {
@@ -430,11 +435,9 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
         }
         for asteroid in &mut game.asteroids {
             if are_circles_intersecting(
-                bullet.position.x,
-                bullet.position.y,
+                bullet.position,
                 bullet.body.radius,
-                asteroid.position.x,
-                asteroid.position.y,
+                asteroid.position,
                 asteroid.body.radius,
             ) {
                 bullet.body.is_hit = true;
@@ -445,11 +448,9 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
     for asteroid in &mut game.asteroids {
         if let Some(ship) = game.ship.as_mut() {
             if are_circles_intersecting(
-                asteroid.position.x,
-                asteroid.position.y,
+                asteroid.position,
                 asteroid.body.radius,
-                ship.position.x,
-                ship.position.y,
+                ship.position,
                 ship.body.radius,
             ) {
                 asteroid.body.is_hit = true;
@@ -458,11 +459,9 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
         }
         for alien in &mut game.aliens {
             if are_circles_intersecting(
-                asteroid.position.x,
-                asteroid.position.y,
+                asteroid.position,
                 asteroid.body.radius,
-                alien.position.x,
-                alien.position.y,
+                alien.position,
                 alien.body.radius,
             ) {
                 asteroid.body.is_hit = true;
@@ -513,16 +512,8 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
             emitter: expl_emitter,
         });
         if asteroid.stage > 0 {
-            new_asteroids.push(Asteroid::new(
-                asteroid.position.x,
-                asteroid.position.y,
-                asteroid.stage - 1,
-            ));
-            new_asteroids.push(Asteroid::new(
-                asteroid.position.x,
-                asteroid.position.y,
-                asteroid.stage - 1,
-            ));
+            new_asteroids.push(Asteroid::new(asteroid.position, asteroid.stage - 1));
+            new_asteroids.push(Asteroid::new(asteroid.position, asteroid.stage - 1));
         }
     }
     game.asteroids.append(&mut new_asteroids);
@@ -577,7 +568,7 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
         GameState::LevelLoading => {
             if game.ship.is_none() {
                 game.ship = Some(Ship {
-                    position: vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0),
+                    position: math::vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0),
                     sprite: Sprite {
                         variant: SpriteVariant::Ship { has_exhaust: false },
                         size: SHIP_DRAW_RADIUS,
@@ -598,14 +589,15 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
                 let ship = game.ship.as_ref().unwrap();
                 let start_stage = ASTEROID_STAGES.len() - 1;
                 while game.asteroids.len() < 5 {
-                    let x = rand::gen_range(0.0, ARENA_WIDTH);
-                    let y = rand::gen_range(0.0, ARENA_HEIGHT);
-                    const RADIUS: i32 = (ARENA_HEIGHT * 0.3) as i32;
-                    let is_too_close =
-                        (x - ship.position.x) as i32 ^ 2 + (y - ship.position.y) as i32 ^ 2
-                            <= RADIUS ^ 2;
+                    let rand_pos = math::vec2(
+                        rand::gen_range(0.0, ARENA_WIDTH),
+                        rand::gen_range(0.0, ARENA_HEIGHT),
+                    );
+                    let delta_pos = rand_pos - ship.position;
+                    const RADIUS: f32 = ARENA_HEIGHT * 0.3;
+                    let is_too_close = delta_pos.x.powi(2) + delta_pos.y.powi(2) <= RADIUS.powi(2);
                     if !is_too_close {
-                        game.asteroids.push(Asteroid::new(x, y, start_stage));
+                        game.asteroids.push(Asteroid::new(rand_pos, start_stage));
                     }
                 }
             }
@@ -615,11 +607,12 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
                 let shoot_is_ready = ship.shoot_cooldown == 0.0;
                 if game.player_actions.contains(&Action::Shoot) && shoot_is_ready {
                     ship.shoot_cooldown = BULLET_COOLDOWN;
+                    let bullet_offset = math::vec2(
+                        ship.sprite.angle.cos() * SHIP_DRAW_RADIUS,
+                        ship.sprite.angle.sin() * SHIP_DRAW_RADIUS,
+                    );
                     game.bullets.push(Bullet {
-                        position: vec2(
-                            ship.position.x + ship.sprite.angle.cos() * SHIP_DRAW_RADIUS,
-                            ship.position.y + ship.sprite.angle.sin() * SHIP_DRAW_RADIUS,
-                        ),
+                        position: ship.position + bullet_offset,
                         sprite: Sprite {
                             variant: SpriteVariant::Bullet,
                             size: f32::NAN,
@@ -647,8 +640,8 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
     }
 }
 
-fn draw_ship(position: &Vec2, sprite: &Sprite) {
-    let (x, y) = (position.x, position.y);
+fn draw_ship(position: math::Vec2, sprite: &Sprite) {
+    // let (x, y) = (position.x, position.y);
     let &Sprite {
         ref variant,
         size: radius,
@@ -659,61 +652,52 @@ fn draw_ship(position: &Vec2, sprite: &Sprite) {
     use macroquad::prelude::{DrawMode, Vertex};
     let gl = unsafe { window::get_internal_gl().quad_gl };
     let vertices = [
+        ((angle + PI * 0.0).cos() * radius, (angle + PI * 0.0).sin() * radius),
+        ((angle + PI * 0.75).cos() * radius, (angle + PI * 0.75).sin() * radius),
         (
-            x + (angle + PI * 0.0).cos() * radius,
-            y + (angle + PI * 0.0).sin() * radius,
+            (angle + PI * 0.79).cos() * radius * 0.4,
+            (angle + PI * 0.79).sin() * radius * 0.4,
         ),
         (
-            x + (angle + PI * 0.75).cos() * radius,
-            y + (angle + PI * 0.75).sin() * radius,
+            (angle + PI * 1.21).cos() * radius * 0.4,
+            (angle + PI * 1.21).sin() * radius * 0.4,
         ),
-        (
-            x + (angle + PI * 0.79).cos() * radius * 0.4,
-            y + (angle + PI * 0.79).sin() * radius * 0.4,
-        ),
-        (
-            x + (angle + PI * 1.21).cos() * radius * 0.4,
-            y + (angle + PI * 1.21).sin() * radius * 0.4,
-        ),
-        (
-            x + (angle + PI * 1.25).cos() * radius,
-            y + (angle + PI * 1.25).sin() * radius,
-        ),
+        ((angle + PI * 1.25).cos() * radius, (angle + PI * 1.25).sin() * radius),
     ]
-    .map(|(x, y)| Vertex::new(x, y, 0.0, 0.0, 0.0, color));
+    .map(|(x, y)| Vertex::new(position.x + x, position.y + y, 0.0, 0.0, 0.0, color));
     let indices = [0, 1, 2, 0, 2, 3, 0, 3, 4];
     gl.texture(None);
     gl.draw_mode(DrawMode::Triangles);
     gl.geometry(&vertices, &indices);
     if has_exhaust {
+        let v1_offset = math::vec2(
+            (angle + PI * 0.85).cos() * radius * 0.55,
+            (angle + PI * 0.85).sin() * radius * 0.55,
+        );
+        let v2_offset = math::vec2(
+            (angle + PI * rand::gen_range(0.98, 1.02)).cos() * radius * rand::gen_range(0.75, 1.25),
+            (angle + PI * rand::gen_range(0.98, 1.02)).sin() * radius * rand::gen_range(0.75, 1.25),
+        );
+        let v3_offset = math::vec2(
+            (angle + PI * 1.15).cos() * radius * 0.55,
+            (angle + PI * 1.15).sin() * radius * 0.55,
+        );
         shapes::draw_triangle(
-            math::vec2(
-                x + (angle + PI * 0.85).cos() * radius * 0.55,
-                y + (angle + PI * 0.85).sin() * radius * 0.55,
-            ),
-            math::vec2(
-                x + (angle + PI * rand::gen_range(0.98, 1.02)).cos()
-                    * radius
-                    * rand::gen_range(0.75, 1.25),
-                y + (angle + PI * rand::gen_range(0.98, 1.02)).sin()
-                    * radius
-                    * rand::gen_range(0.75, 1.25),
-            ),
-            math::vec2(
-                x + (angle + PI * 1.15).cos() * radius * 0.55,
-                y + (angle + PI * 1.15).sin() * radius * 0.55,
-            ),
+            position + v1_offset,
+            position + v2_offset,
+            position + v3_offset,
             color::Color::new(1.0, 1.0, 1.0, 1.0),
         );
     }
 }
 
-fn draw_polygon(draw_points: &[(f32, f32)], offset_x: f32, offset_y: f32, color: color::Color) {
+fn draw_polygon(draw_points: &[math::Vec2], offset: math::Vec2, color: color::Color) {
     use macroquad::prelude::{DrawMode, Vertex};
     let gl = unsafe { window::get_internal_gl().quad_gl };
     let vertices: Vec<_> = draw_points
         .iter()
-        .map(|&(x, y)| Vertex::new(x + offset_x, y + offset_y, 0.0, 0.0, 0.0, color))
+        .map(|&p| p + offset)
+        .map(|p| Vertex::new(p.x, p.y, 0.0, 0.0, 0.0, color))
         .collect();
     let indices: Vec<_> = (1..(draw_points.len() as u16 - 1))
         .flat_map(|i| [0, i, i + 1])
@@ -729,11 +713,10 @@ fn draw(game: &mut Game) {
     }
     for y in -1..=1 {
         for x in -1..=1 {
-            let offset_x = x as f32 * ARENA_WIDTH;
-            let offset_y = y as f32 * ARENA_HEIGHT;
+            let offset = math::vec2(x as f32 * ARENA_WIDTH, y as f32 * ARENA_HEIGHT);
             if let Some(Ship { position, sprite, .. }) = &game.ship {
-                let position = *position + vec2(offset_x, offset_y);
-                draw_ship(&position, sprite);
+                let position = *position + offset;
+                draw_ship(position, sprite);
                 // shapes::draw_line(
                 //     position.x,
                 //     position.y,
@@ -762,23 +745,20 @@ fn draw(game: &mut Game) {
                 // );
             }
             for Bullet { position, sprite, .. } in &game.bullets {
+                let position = *position + offset;
                 shapes::draw_line(
-                    position.x + offset_x,
-                    position.y + offset_y,
-                    position.x + offset_x + sprite.angle.cos() * 10.0,
-                    position.y + offset_y + sprite.angle.sin() * 10.0,
+                    position.x,
+                    position.y,
+                    position.x + sprite.angle.cos() * 10.0,
+                    position.y + sprite.angle.sin() * 10.0,
                     2.0,
                     sprite.color,
                 );
             }
             for Asteroid { position, sprite, .. } in &game.asteroids {
                 if let SpriteVariant::Asteroid { ref draw_points } = &sprite.variant {
-                    draw_polygon(
-                        &draw_points,
-                        position.x + offset_x,
-                        position.y + offset_y,
-                        sprite.color,
-                    );
+                    let position = *position + offset;
+                    draw_polygon(draw_points, position, sprite.color);
                 } else {
                     unreachable!();
                 }
@@ -787,7 +767,7 @@ fn draw(game: &mut Game) {
                 let angle_by_x = (position.x * 2.0) % 360.0;
                 shapes::draw_poly(
                     position.x,
-                    position.y + offset_y,
+                    position.y + offset.y,
                     6,
                     sprite.size,
                     angle_by_x,
@@ -821,14 +801,13 @@ fn draw(game: &mut Game) {
 }
 
 fn are_circles_intersecting(
-    a_x: f32,
-    a_y: f32,
+    a_pos: math::Vec2,
     a_radius: f32,
-    b_x: f32,
-    b_y: f32,
+    b_pos: math::Vec2,
     b_radius: f32,
 ) -> bool {
-    return (a_x - b_x).powf(2.0) + (a_y - b_y).powf(2.0) <= (a_radius + b_radius).powf(2.0);
+    let d_pos = a_pos - b_pos;
+    return d_pos.x.powi(2) + d_pos.y.powi(2) <= (a_radius + b_radius).powi(2);
 }
 
 fn sum_vectors(v1_magnitude: f32, v1_angle: f32, v2_magnitude: f32, v2_angle: f32) -> (f32, f32) {
