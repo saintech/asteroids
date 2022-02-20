@@ -376,39 +376,63 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
             }
         }
     }
-    for bullet in &mut game.bullets {
+    let (mut enemy_bullets, mut ship_bullets): (Vec<_>, _) =
+        game.bullets.iter_mut().partition(|b| b.from_enemy);
+    for enemy_bullet in &mut enemy_bullets {
         if let Some(ship) = game.ship.as_mut() {
             if are_circles_intersecting(
-                bullet.position,
-                bullet.body.radius,
+                enemy_bullet.position,
+                enemy_bullet.body.radius,
                 ship.position,
                 ship.body.radius,
-            ) && bullet.from_enemy
-            {
-                bullet.body.is_hit = true;
+            ) {
+                enemy_bullet.body.is_hit = true;
                 ship.body.is_hit = true;
+            }
+        }
+        for asteroid in &mut game.asteroids {
+            if are_circles_intersecting(
+                enemy_bullet.position,
+                enemy_bullet.body.radius,
+                asteroid.position,
+                asteroid.body.radius,
+            ) {
+                enemy_bullet.body.is_hit = true;
+                asteroid.body.is_hit = true;
+            }
+        }
+    }
+    for ship_bullet in &mut ship_bullets {
+        for enemy_bullet in &mut enemy_bullets {
+            if are_circles_intersecting(
+                enemy_bullet.position,
+                enemy_bullet.body.radius,
+                ship_bullet.position,
+                ship_bullet.body.radius,
+            ) {
+                enemy_bullet.body.is_hit = true;
+                ship_bullet.body.is_hit = true;
             }
         }
         for alien in &mut game.aliens {
             if are_circles_intersecting(
-                bullet.position,
-                bullet.body.radius,
+                ship_bullet.position,
+                ship_bullet.body.radius,
                 alien.position,
                 alien.body.radius,
-            ) && !bullet.from_enemy
-            {
-                bullet.body.is_hit = true;
+            ) {
+                ship_bullet.body.is_hit = true;
                 alien.body.is_hit = true;
             }
         }
         for asteroid in &mut game.asteroids {
             if are_circles_intersecting(
-                bullet.position,
-                bullet.body.radius,
+                ship_bullet.position,
+                ship_bullet.body.radius,
                 asteroid.position,
                 asteroid.body.radius,
             ) {
-                bullet.body.is_hit = true;
+                ship_bullet.body.is_hit = true;
                 asteroid.body.is_hit = true;
             }
         }
