@@ -361,102 +361,72 @@ fn move_system_update(game: &mut Game, dt: f32) {
 }
 
 fn collision_system_update(game: &mut Game, _dt: f32) {
-    for alien in &mut game.aliens {
-        if let Some(ship) = game.ship.as_mut() {
-            if are_circles_intersecting(
-                alien.position,
-                alien.body.radius,
-                ship.position,
-                ship.body.radius,
-            ) {
-                alien.body.is_hit = true;
-                ship.body.is_hit = true;
-            }
+    fn do_collision(a_pos: math::Vec2, a_body: &mut Body, b_pos: math::Vec2, b_body: &mut Body) {
+        let d_pos = a_pos - b_pos;
+        let is_intersecting =
+            d_pos.x.powi(2) + d_pos.y.powi(2) <= (a_body.radius + b_body.radius).powi(2);
+        if is_intersecting {
+            a_body.is_hit = true;
+            b_body.is_hit = true;
         }
     }
     let (mut enemy_bullets, mut ship_bullets): (Vec<_>, _) =
         game.bullets.iter_mut().partition(|b| b.from_enemy);
+    for alien in &mut game.aliens {
+        for ship in &mut game.ship {
+            do_collision(alien.position, &mut alien.body, ship.position, &mut ship.body);
+        }
+    }
     for enemy_bullet in &mut enemy_bullets {
-        if let Some(ship) = game.ship.as_mut() {
-            if are_circles_intersecting(
+        for ship in &mut game.ship {
+            do_collision(
                 enemy_bullet.position,
-                enemy_bullet.body.radius,
+                &mut enemy_bullet.body,
                 ship.position,
-                ship.body.radius,
-            ) {
-                enemy_bullet.body.is_hit = true;
-                ship.body.is_hit = true;
-            }
+                &mut ship.body,
+            );
         }
         for asteroid in &mut game.asteroids {
-            if are_circles_intersecting(
+            do_collision(
                 enemy_bullet.position,
-                enemy_bullet.body.radius,
+                &mut enemy_bullet.body,
                 asteroid.position,
-                asteroid.body.radius,
-            ) {
-                enemy_bullet.body.is_hit = true;
-                asteroid.body.is_hit = true;
-            }
+                &mut asteroid.body,
+            );
         }
     }
     for ship_bullet in &mut ship_bullets {
         for enemy_bullet in &mut enemy_bullets {
-            if are_circles_intersecting(
-                enemy_bullet.position,
-                enemy_bullet.body.radius,
+            do_collision(
                 ship_bullet.position,
-                ship_bullet.body.radius,
-            ) {
-                enemy_bullet.body.is_hit = true;
-                ship_bullet.body.is_hit = true;
-            }
+                &mut ship_bullet.body,
+                enemy_bullet.position,
+                &mut enemy_bullet.body,
+            );
         }
         for alien in &mut game.aliens {
-            if are_circles_intersecting(
+            do_collision(
                 ship_bullet.position,
-                ship_bullet.body.radius,
+                &mut ship_bullet.body,
                 alien.position,
-                alien.body.radius,
-            ) {
-                ship_bullet.body.is_hit = true;
-                alien.body.is_hit = true;
-            }
+                &mut alien.body,
+            );
         }
         for asteroid in &mut game.asteroids {
-            if are_circles_intersecting(
+            do_collision(
                 ship_bullet.position,
-                ship_bullet.body.radius,
+                &mut ship_bullet.body,
                 asteroid.position,
-                asteroid.body.radius,
-            ) {
-                ship_bullet.body.is_hit = true;
-                asteroid.body.is_hit = true;
-            }
+                &mut asteroid.body,
+            );
         }
     }
     for asteroid in &mut game.asteroids {
-        if let Some(ship) = game.ship.as_mut() {
-            if are_circles_intersecting(
-                asteroid.position,
-                asteroid.body.radius,
-                ship.position,
-                ship.body.radius,
-            ) {
-                asteroid.body.is_hit = true;
-                ship.body.is_hit = true;
-            }
+        for ship in &mut game.ship {
+            do_collision(asteroid.position, &mut asteroid.body, ship.position, &mut ship.body);
         }
         for alien in &mut game.aliens {
-            if are_circles_intersecting(
-                asteroid.position,
-                asteroid.body.radius,
-                alien.position,
-                alien.body.radius,
-            ) {
-                asteroid.body.is_hit = true;
-                alien.body.is_hit = true;
-            }
+            do_collision(asteroid.position, &mut asteroid.body, alien.position, &mut alien.body);
         }
     }
 }
@@ -472,7 +442,7 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
             emitter: expl_emitter,
         });
     }
-    for alien in &mut game.aliens.iter_mut().filter(|a| a.body.is_hit) {
+    for alien in game.aliens.iter_mut().filter(|a| a.body.is_hit) {
         alien.is_destroyed = true;
         let expl_emitter = particles::Emitter::new(ship_explosion(alien.sprite.color));
         game.explosions.push(Explosion {
@@ -488,7 +458,7 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
     }
     game.bullets.retain(|b| !b.body.is_hit);
     let mut new_asteroids: Vec<Asteroid> = Default::default();
-    for asteroid in &mut game.asteroids.iter_mut().filter(|a| a.body.is_hit) {
+    for asteroid in game.asteroids.iter_mut().filter(|a| a.body.is_hit) {
         asteroid.is_destroyed = true;
         let expl_emitter = particles::Emitter::new(asteroid_explosion());
         game.explosions.push(Explosion {
@@ -704,7 +674,7 @@ fn draw(game: &mut Game) {
     for y in -1..=1 {
         for x in -1..=1 {
             let offset = math::vec2(x as f32 * ARENA_WIDTH, y as f32 * ARENA_HEIGHT);
-            if let Some(Ship { position, sprite, .. }) = &game.ship {
+            for Ship { position, sprite, .. } in &game.ship {
                 let position = *position + offset;
                 draw_ship(position, sprite);
                 // shapes::draw_line(
@@ -746,12 +716,12 @@ fn draw(game: &mut Game) {
                 );
             }
             for Asteroid { position, sprite, .. } in &game.asteroids {
-                if let SpriteVariant::Asteroid { ref draw_points } = &sprite.variant {
-                    let position = *position + offset;
-                    draw_polygon(draw_points, position, sprite.color);
-                } else {
-                    unreachable!();
-                }
+                let draw_points = match &sprite.variant {
+                    SpriteVariant::Asteroid { draw_points } => draw_points,
+                    _ => unreachable!(),
+                };
+                let position = *position + offset;
+                draw_polygon(draw_points, position, sprite.color);
             }
             for Alien { position, sprite, .. } in &game.aliens {
                 let angle_by_x = (position.x * 2.0) % 360.0;
@@ -788,16 +758,6 @@ fn draw(game: &mut Game) {
     .for_each(|(i, (name, val))| {
         text::draw_text(&format!("{}: {}", name, val), 0.0, 16.0 * (i + 1) as f32, 16.0, color)
     });
-}
-
-fn are_circles_intersecting(
-    a_pos: math::Vec2,
-    a_radius: f32,
-    b_pos: math::Vec2,
-    b_radius: f32,
-) -> bool {
-    let d_pos = a_pos - b_pos;
-    return d_pos.x.powi(2) + d_pos.y.powi(2) <= (a_radius + b_radius).powi(2);
 }
 
 fn sum_vectors(v1_magnitude: f32, v1_angle: f32, v2_magnitude: f32, v2_angle: f32) -> (f32, f32) {
