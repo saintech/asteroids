@@ -69,7 +69,7 @@ struct Bullet {
     position: math::Vec2,
     sprite: Sprite,
     body: Body,
-    time_left: f32,
+    life_timer: f32,
     from_enemy: bool,
 }
 
@@ -78,14 +78,14 @@ struct Ship {
     sprite: Sprite,
     body: Body,
     is_destroyed: bool,
-    shoot_cooldown: f32,
+    weapon_cooldown_timer: f32,
 }
 
 struct Explosion {
     position: math::Vec2,
     body: Body,
     emitter: particles::Emitter,
-    time_left: f32,
+    life_timer: f32,
 }
 
 #[derive(Copy, Clone)]
@@ -107,7 +107,7 @@ struct Alien {
     is_destroyed: bool,
     kind: AlienKind,
     direction: AlienDirection,
-    shoot_cooldown: f32,
+    weapon_cooldown_timer: f32,
     shift_timer: f32,
 }
 
@@ -139,7 +139,7 @@ impl Alien {
             is_destroyed: false,
             kind,
             direction,
-            shoot_cooldown: ALIEN_SHOOT_PERIOD,
+            weapon_cooldown_timer: ALIEN_SHOOT_PERIOD,
             shift_timer: 0.0,
         }
     }
@@ -244,7 +244,7 @@ fn input_system_update(game: &mut Game, _dt: f32) {
 fn ai_system_update(game: &mut Game, _dt: f32) {
     for alien in &mut game.aliens {
         let time_to_shift = alien.shift_timer == 0.0;
-        let time_to_shoot = alien.shoot_cooldown == 0.0;
+        let time_to_shoot = alien.weapon_cooldown_timer == 0.0;
         if time_to_shift {
             alien.shift_timer = ALIEN_SHIFT_PERIOD;
             let d_angle = PI / 4.0;
@@ -256,7 +256,7 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
                 .clamp(origin_angle - d_angle, origin_angle + d_angle);
         }
         if time_to_shoot && game.ship.is_some() {
-            alien.shoot_cooldown = ALIEN_SHOOT_PERIOD;
+            alien.weapon_cooldown_timer = ALIEN_SHOOT_PERIOD;
             let ship = game.ship.as_ref().unwrap();
             let bullet_time_left = ALIEN_BULLET_TIMER_LIMIT_BY_KIND[alien.kind as usize];
             let radius = ALIEN_HIT_RADIUS_BY_KIND[alien.kind as usize] / 2.0;
@@ -277,7 +277,7 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
                     speed: ALIEN_BULLET_SPEED,
                     is_hit: false,
                 },
-                time_left: bullet_time_left,
+                life_timer: bullet_time_left,
                 from_enemy: true,
             })
         }
@@ -291,17 +291,17 @@ fn timers_system_update(game: &mut Game, dt: f32) {
     game.alien_timer = f32::max(0.0, game.alien_timer - dt);
     game.pause_timer = f32::max(0.0, game.pause_timer - dt);
     if let Some(ship) = &mut game.ship {
-        ship.shoot_cooldown = f32::max(0.0, ship.shoot_cooldown - dt);
+        ship.weapon_cooldown_timer = f32::max(0.0, ship.weapon_cooldown_timer - dt);
     }
     for explosion in &mut game.explosions {
-        explosion.time_left = f32::max(0.0, explosion.time_left - dt);
+        explosion.life_timer = f32::max(0.0, explosion.life_timer - dt);
     }
     for bullet in &mut game.bullets {
-        bullet.time_left = f32::max(0.0, bullet.time_left - dt);
+        bullet.life_timer = f32::max(0.0, bullet.life_timer - dt);
     }
     for alien in &mut game.aliens {
         alien.shift_timer = f32::max(0.0, alien.shift_timer - dt);
-        alien.shoot_cooldown = f32::max(0.0, alien.shoot_cooldown - dt);
+        alien.weapon_cooldown_timer = f32::max(0.0, alien.weapon_cooldown_timer - dt);
     }
 }
 
@@ -468,7 +468,7 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
         game.explosions.push(Explosion {
             position: ship.position,
             body: Default::default(),
-            time_left: expl_emitter.config.lifetime,
+            life_timer: expl_emitter.config.lifetime,
             emitter: expl_emitter,
         });
     }
@@ -482,7 +482,7 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
                 speed: alien.body.speed,
                 ..Default::default()
             },
-            time_left: expl_emitter.config.lifetime,
+            life_timer: expl_emitter.config.lifetime,
             emitter: expl_emitter,
         });
     }
@@ -498,7 +498,7 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
                 speed: asteroid.body.speed * 1.5,
                 ..Default::default()
             },
-            time_left: expl_emitter.config.lifetime,
+            life_timer: expl_emitter.config.lifetime,
             emitter: expl_emitter,
         });
         if asteroid.stage > 0 {
@@ -548,9 +548,9 @@ fn gamestate_system_update(game: &mut Game, _dt: f32) {
 fn cleanup_system_update(game: &mut Game, _dt: f32) {
     game.ship = game.ship.take().filter(|sh| !sh.is_destroyed);
     game.aliens.retain(|a| !a.is_destroyed);
-    game.bullets.retain(|b| b.time_left > 0.0);
+    game.bullets.retain(|b| b.life_timer > 0.0);
     game.asteroids.retain(|a| !a.is_destroyed);
-    game.explosions.retain(|e| e.time_left > 0.0);
+    game.explosions.retain(|e| e.life_timer > 0.0);
 }
 
 fn spawn_system_update(game: &mut Game, _dt: f32) {
@@ -572,7 +572,7 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
                         is_hit: false,
                     },
                     is_destroyed: false,
-                    shoot_cooldown: 0.0,
+                    weapon_cooldown_timer: 0.0,
                 });
             }
             if game.asteroids.is_empty() {
@@ -594,9 +594,9 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
         }
         GameState::LevelRunning => {
             if let Some(ship) = &mut game.ship {
-                let shoot_is_ready = ship.shoot_cooldown == 0.0;
+                let shoot_is_ready = ship.weapon_cooldown_timer == 0.0;
                 if game.player_actions.contains(&Action::Shoot) && shoot_is_ready {
-                    ship.shoot_cooldown = BULLET_COOLDOWN;
+                    ship.weapon_cooldown_timer = BULLET_COOLDOWN;
                     let bullet_offset = math::vec2(
                         ship.sprite.angle.cos() * SHIP_DRAW_RADIUS,
                         ship.sprite.angle.sin() * SHIP_DRAW_RADIUS,
@@ -615,7 +615,7 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
                             speed: SHIP_BULLET_SPEED,
                             is_hit: false,
                         },
-                        time_left: SHIP_BULLET_TIMER_LIMIT,
+                        life_timer: SHIP_BULLET_TIMER_LIMIT,
                         from_enemy: false,
                     });
                 }
