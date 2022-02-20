@@ -30,6 +30,12 @@ const ASTEROID_STAGES: &[AsteroidStage] = &[
     AsteroidStage { max_speed: 120.0, radius: 28.0 },
     AsteroidStage { max_speed: 60.0, radius: 40.0 },
 ];
+const KEYMAP: &[(input::KeyCode, Action)] = &[
+    (input::KeyCode::Up, Action::Accelerate),
+    (input::KeyCode::Left, Action::TurnLeft),
+    (input::KeyCode::Right, Action::TurnRight),
+    (input::KeyCode::S, Action::Shoot),
+];
 
 struct AsteroidStage {
     max_speed: f32,
@@ -190,7 +196,7 @@ impl Default for GameState {
     }
 }
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 enum Action {
     Accelerate,
     TurnLeft,
@@ -224,18 +230,10 @@ fn load(game: &mut Game) {
 fn input_system_update(game: &mut Game, _dt: f32) {
     match game.state {
         GameState::LevelRunning => {
-            use input::KeyCode;
-            let keymap = [
-                (KeyCode::Up, Action::Accelerate),
-                (KeyCode::Left, Action::TurnLeft),
-                (KeyCode::Right, Action::TurnRight),
-                (KeyCode::S, Action::Shoot),
-            ];
-            for (key, action) in keymap {
+            game.player_actions.clear();
+            for &(key, action) in KEYMAP {
                 if input::is_key_down(key) {
                     game.player_actions.insert(action);
-                } else {
-                    game.player_actions.remove(&action);
                 }
             }
         }
