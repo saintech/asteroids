@@ -35,6 +35,7 @@ const KEYMAP: &[(input::KeyCode, Action)] = &[
     (input::KeyCode::Left, Action::TurnLeft),
     (input::KeyCode::Right, Action::TurnRight),
     (input::KeyCode::S, Action::Shoot),
+    (input::KeyCode::Escape, Action::TogglePause),
 ];
 
 struct AsteroidStage {
@@ -255,6 +256,7 @@ enum Action {
     TurnLeft,
     TurnRight,
     Shoot,
+    TogglePause,
 }
 
 impl Default for Action {
@@ -281,12 +283,29 @@ fn load(game: &mut Game) {
 }
 
 fn input_system_update(game: &mut Game, _dt: f32) {
+    game.player_actions.clear();
     match game.state {
+        GameState::Pause => {
+            use Action::*;
+            let pause_key = match KEYMAP[4] {
+                (pause_key, TogglePause) => pause_key,
+                _ => unreachable!(),
+            };
+            if input::is_key_pressed(pause_key) {
+                game.player_actions.insert(TogglePause);
+            }
+        }
         GameState::LevelRunning => {
-            game.player_actions.clear();
+            use Action::*;
             for &(key, action) in KEYMAP {
-                if input::is_key_down(key) {
-                    game.player_actions.insert(action);
+                if action == TogglePause {
+                    if input::is_key_pressed(key) {
+                        game.player_actions.insert(action);
+                    }
+                } else {
+                    if input::is_key_down(key) {
+                        game.player_actions.insert(action);
+                    }
                 }
             }
         }
@@ -326,20 +345,25 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
 }
 
 fn timers_system_update(game: &mut Game, dt: f32) {
-    game.alien_timer = f32::max(0.0, game.alien_timer - dt);
-    game.pause_timer = f32::max(0.0, game.pause_timer - dt);
-    if let Some(ship) = &mut game.ship {
-        ship.weapon_cooldown_timer = f32::max(0.0, ship.weapon_cooldown_timer - dt);
-    }
-    for explosion in &mut game.explosions {
-        explosion.life_timer = f32::max(0.0, explosion.life_timer - dt);
-    }
-    for bullet in &mut game.bullets {
-        bullet.life_timer = f32::max(0.0, bullet.life_timer - dt);
-    }
-    for alien in &mut game.aliens {
-        alien.shift_timer = f32::max(0.0, alien.shift_timer - dt);
-        alien.weapon_cooldown_timer = f32::max(0.0, alien.weapon_cooldown_timer - dt);
+    match game.state {
+        GameState::Pause => (),
+        _ => {
+            game.alien_timer = f32::max(0.0, game.alien_timer - dt);
+            game.pause_timer = f32::max(0.0, game.pause_timer - dt);
+            if let Some(ship) = &mut game.ship {
+                ship.weapon_cooldown_timer = f32::max(0.0, ship.weapon_cooldown_timer - dt);
+            }
+            for explosion in &mut game.explosions {
+                explosion.life_timer = f32::max(0.0, explosion.life_timer - dt);
+            }
+            for bullet in &mut game.bullets {
+                bullet.life_timer = f32::max(0.0, bullet.life_timer - dt);
+            }
+            for alien in &mut game.aliens {
+                alien.shift_timer = f32::max(0.0, alien.shift_timer - dt);
+                alien.weapon_cooldown_timer = f32::max(0.0, alien.weapon_cooldown_timer - dt);
+            }
+        }
     }
 }
 
@@ -520,13 +544,20 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
 fn gamestate_system_update(game: &mut Game, _dt: f32) {
     // dbg!(&game.state);
     match game.state {
-        GameState::Pause => (),
+        GameState::Pause => {
+            if game.player_actions.contains(&Action::TogglePause) {
+                game.state = GameState::LevelRunning;
+            }
+        }
         GameState::LevelLoading => {
             if game.ship.is_some() && !game.asteroids.is_empty() {
                 game.state = GameState::LevelRunning;
             }
         }
         GameState::LevelRunning => {
+            if game.player_actions.contains(&Action::TogglePause) {
+                game.state = GameState::Pause;
+            }
             if game.ship.as_ref().map_or(false, |sh| sh.is_destroyed) {
                 game.pause_timer = 2.0;
                 game.state = GameState::GameOver;
