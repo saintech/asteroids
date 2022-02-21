@@ -73,12 +73,65 @@ struct Bullet {
     from_enemy: bool,
 }
 
+impl Bullet {
+    pub fn new(position: math::Vec2, angle: f32, alien_kind: Option<AlienKind>) -> Self {
+        let (color, speed, life_timer) = if let Some(kind) = alien_kind {
+            (
+                ALIEN_BULLET_COLOR,
+                ALIEN_BULLET_SPEED,
+                ALIEN_BULLET_TIMER_LIMIT_BY_KIND[kind as usize],
+            )
+        } else {
+            (SHIP_BULLET_COLOR, SHIP_BULLET_SPEED, SHIP_BULLET_TIMER_LIMIT)
+        };
+        Bullet {
+            position,
+            sprite: Sprite {
+                variant: SpriteVariant::Bullet,
+                size: f32::NAN,
+                angle,
+                color,
+            },
+            body: Body {
+                radius: BULLET_RADIUS,
+                angle,
+                speed,
+                is_hit: false,
+            },
+            life_timer,
+            from_enemy: alien_kind.is_some(),
+        }
+    }
+}
+
 struct Ship {
     position: math::Vec2,
     sprite: Sprite,
     body: Body,
     is_destroyed: bool,
     weapon_cooldown_timer: f32,
+}
+
+impl Ship {
+    pub fn new() -> Self {
+        Ship {
+            position: math::vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0),
+            sprite: Sprite {
+                variant: SpriteVariant::Ship { has_exhaust: false },
+                size: SHIP_DRAW_RADIUS,
+                angle: 0.0,
+                color: color::Color::new(0.0, 1.0, 1.0, 1.0),
+            },
+            body: Body {
+                radius: SHIP_HIT_RADIUS,
+                angle: 0.0,
+                speed: 0.0,
+                is_hit: false,
+            },
+            is_destroyed: false,
+            weapon_cooldown_timer: 0.0,
+        }
+    }
 }
 
 struct Explosion {
@@ -258,32 +311,17 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
         if time_to_shoot && game.ship.is_some() {
             alien.weapon_cooldown_timer = ALIEN_SHOOT_PERIOD;
             let ship = game.ship.as_ref().unwrap();
-            let bullet_time_left = ALIEN_BULLET_TIMER_LIMIT_BY_KIND[alien.kind as usize];
             let radius = ALIEN_HIT_RADIUS_BY_KIND[alien.kind as usize] / 2.0;
             let shoot_angle =
                 f32::atan2(ship.position.y - alien.position.y, ship.position.x - alien.position.x);
-            game.bullets.push(Bullet {
-                position: alien.position
-                    + math::vec2(shoot_angle.cos() * radius, shoot_angle.sin() * radius),
-                sprite: Sprite {
-                    variant: SpriteVariant::Bullet,
-                    size: f32::NAN,
-                    angle: shoot_angle,
-                    color: ALIEN_BULLET_COLOR,
-                },
-                body: Body {
-                    radius: BULLET_RADIUS,
-                    angle: shoot_angle,
-                    speed: ALIEN_BULLET_SPEED,
-                    is_hit: false,
-                },
-                life_timer: bullet_time_left,
-                from_enemy: true,
-            })
+            let weapon_position =
+                alien.position + math::vec2(shoot_angle.cos() * radius, shoot_angle.sin() * radius);
+            game.bullets
+                .push(Bullet::new(weapon_position, shoot_angle, Some(alien.kind)));
         }
         if alien.position.x < -10.0 || ARENA_WIDTH + 10.0 < alien.position.x {
             alien.is_destroyed = true;
-        };
+        }
     }
 }
 
@@ -527,23 +565,7 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
     match game.state {
         GameState::LevelLoading => {
             if game.ship.is_none() {
-                game.ship = Some(Ship {
-                    position: math::vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0),
-                    sprite: Sprite {
-                        variant: SpriteVariant::Ship { has_exhaust: false },
-                        size: SHIP_DRAW_RADIUS,
-                        angle: 0.0,
-                        color: color::Color::new(0.0, 1.0, 1.0, 1.0),
-                    },
-                    body: Body {
-                        radius: SHIP_HIT_RADIUS,
-                        angle: 0.0,
-                        speed: 0.0,
-                        is_hit: false,
-                    },
-                    is_destroyed: false,
-                    weapon_cooldown_timer: 0.0,
-                });
+                game.ship = Some(Ship::new());
             }
             if game.asteroids.is_empty() {
                 let ship = game.ship.as_ref().unwrap();
@@ -571,23 +593,11 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
                         ship.sprite.angle.cos() * SHIP_DRAW_RADIUS,
                         ship.sprite.angle.sin() * SHIP_DRAW_RADIUS,
                     );
-                    game.bullets.push(Bullet {
-                        position: ship.position + bullet_offset,
-                        sprite: Sprite {
-                            variant: SpriteVariant::Bullet,
-                            size: f32::NAN,
-                            angle: ship.sprite.angle,
-                            color: SHIP_BULLET_COLOR,
-                        },
-                        body: Body {
-                            radius: BULLET_RADIUS,
-                            angle: ship.sprite.angle,
-                            speed: SHIP_BULLET_SPEED,
-                            is_hit: false,
-                        },
-                        life_timer: SHIP_BULLET_TIMER_LIMIT,
-                        from_enemy: false,
-                    });
+                    game.bullets.push(Bullet::new(
+                        ship.position + bullet_offset,
+                        ship.sprite.angle,
+                        None,
+                    ));
                 }
             }
             let time_to_spawn_alien = game.alien_timer == 0.0;
@@ -741,6 +751,7 @@ fn draw(game: &mut Game) {
     let color = color::Color::new(0.5, 0.5, 0.5, 1.0);
     let ship = game.ship.as_ref();
     [
+        ("fps", time::get_fps() as f32),
         ("ship.sprite.angle", ship.map_or(0.0, |sh| sh.sprite.angle)),
         ("ship.position.x", ship.map_or(0.0, |sh| sh.position.x)),
         ("ship.position.y", ship.map_or(0.0, |sh| sh.position.y)),
