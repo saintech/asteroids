@@ -269,7 +269,7 @@ impl Default for Action {
 struct Game {
     state: GameState,
     player_actions: HashSet<Action>,
-    pause_timer: f32,
+    break_timer: f32,
     alien_timer: f32,
     ship: Option<Ship>,
     bullets: Vec<Bullet>,
@@ -349,7 +349,7 @@ fn timers_system_update(game: &mut Game, dt: f32) {
         GameState::Pause => (),
         _ => {
             game.alien_timer = f32::max(0.0, game.alien_timer - dt);
-            game.pause_timer = f32::max(0.0, game.pause_timer - dt);
+            game.break_timer = f32::max(0.0, game.break_timer - dt);
             if let Some(ship) = &mut game.ship {
                 ship.weapon_cooldown_timer = f32::max(0.0, ship.weapon_cooldown_timer - dt);
             }
@@ -559,23 +559,23 @@ fn gamestate_system_update(game: &mut Game, _dt: f32) {
                 game.state = GameState::Pause;
             }
             if game.ship.as_ref().map_or(false, |sh| sh.is_destroyed) {
-                game.pause_timer = 2.0;
+                game.break_timer = 2.0;
                 game.state = GameState::GameOver;
             }
             if game.asteroids.is_empty() && game.aliens.is_empty() {
-                game.pause_timer = 2.0;
+                game.break_timer = 2.0;
                 game.state = GameState::LevelCompleted;
             }
         }
         GameState::LevelCompleted => {
-            if game.pause_timer == 0.0 {
+            if game.break_timer == 0.0 {
                 let alien_timer = game.alien_timer;
                 *game = Default::default();
                 game.alien_timer = alien_timer;
             }
         }
         GameState::GameOver => {
-            if game.pause_timer == 0.0 {
+            if game.break_timer == 0.0 {
                 let alien_timer = game.alien_timer;
                 *game = Default::default();
                 game.alien_timer = alien_timer;
