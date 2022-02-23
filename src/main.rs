@@ -235,6 +235,56 @@ impl Asteroid {
     }
 }
 
+struct StarBackground {
+    static_emitter: particles::Emitter,
+    side_emitter: particles::Emitter,
+    side_emitter_pos: math::Vec2,
+}
+
+impl Default for StarBackground {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StarBackground {
+    pub fn new() -> Self {
+        let static_cfg = stars();
+        let mut side_cfg = stars();
+        let side_emitter_pos;
+        side_cfg.lifetime_randomness = 0.0;
+        side_cfg.explosiveness = 0.0;
+        side_cfg.size_curve = None;
+        side_cfg.amount = 100;
+        // from left, from right, from top:
+        match rand::gen_range::<i32>(0, 3) {
+            multiplier @ (0 | 1) => {
+                side_cfg.initial_direction =
+                    math::vec2(1.0 - 2.0 * multiplier as f32, rand::gen_range(-0.3, 0.3));
+                side_cfg.emission_shape = particles::EmissionShape::Rect {
+                    width: 0.0,
+                    height: ARENA_HEIGHT * 1.2,
+                };
+                side_emitter_pos = math::vec2(ARENA_WIDTH * multiplier as f32, ARENA_HEIGHT / 2.0);
+            }
+            2 => {
+                side_cfg.initial_direction = math::vec2(rand::gen_range(-0.3, 0.3), 1.0);
+                side_cfg.emission_shape = particles::EmissionShape::Rect {
+                    width: ARENA_WIDTH * 1.2,
+                    height: 0.0,
+                };
+                side_emitter_pos = math::vec2(ARENA_WIDTH / 2.0, 0.0);
+            }
+            _ => unreachable!(),
+        }
+        StarBackground {
+            static_emitter: particles::Emitter::new(static_cfg),
+            side_emitter: particles::Emitter::new(side_cfg),
+            side_emitter_pos,
+        }
+    }
+}
+
 #[derive(Debug)]
 enum GameState {
     LevelLoading,
@@ -259,18 +309,13 @@ enum Action {
     TogglePause,
 }
 
-impl Default for Action {
-    fn default() -> Self {
-        Action::Accelerate
-    }
-}
-
 #[derive(Default)]
 struct Game {
     state: GameState,
     player_actions: HashSet<Action>,
     break_timer: f32,
     alien_timer: f32,
+    star_bg: StarBackground,
     ship: Option<Ship>,
     bullets: Vec<Bullet>,
     asteroids: Vec<Asteroid>,
@@ -569,16 +614,16 @@ fn gamestate_system_update(game: &mut Game, _dt: f32) {
         }
         GameState::LevelCompleted => {
             if game.break_timer == 0.0 {
-                let alien_timer = game.alien_timer;
-                *game = Default::default();
-                game.alien_timer = alien_timer;
+                let old_game = std::mem::replace(game, Default::default());
+                game.alien_timer = old_game.alien_timer;
+                game.star_bg = old_game.star_bg;
             }
         }
         GameState::GameOver => {
             if game.break_timer == 0.0 {
-                let alien_timer = game.alien_timer;
-                *game = Default::default();
-                game.alien_timer = alien_timer;
+                let old_game = std::mem::replace(game, Default::default());
+                game.alien_timer = old_game.alien_timer;
+                game.star_bg = old_game.star_bg;
             }
         }
     }
@@ -709,6 +754,12 @@ fn draw_polygon(draw_points: &[math::Vec2], offset: math::Vec2, color: color::Co
 }
 
 fn draw(game: &mut Game) {
+    game.star_bg
+        .static_emitter
+        .draw(math::vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0));
+    game.star_bg
+        .side_emitter
+        .draw(game.star_bg.side_emitter_pos);
     for explosion in &mut game.explosions {
         explosion.emitter.draw(explosion.position);
     }
@@ -876,6 +927,31 @@ fn ship_explosion(color: color::Color) -> particles::EmitterConfig {
             mid: color,
             end: color::Color::new(0.0, 0.0, 0.0, 1.0),
         },
+        ..Default::default()
+    }
+}
+
+fn stars() -> particles::EmitterConfig {
+    particles::EmitterConfig {
+        lifetime: 40.0,
+        lifetime_randomness: 0.4,
+        amount: 33,
+        explosiveness: 0.2,
+        local_coords: true,
+        initial_direction: math::vec2(0.001, 0.0),
+        initial_velocity: 70.0,
+        initial_velocity_randomness: 0.8,
+        size: 1.6,
+        size_randomness: 0.6,
+        size_curve: Some(particles::Curve {
+            points: vec![(0.0, 0.0), (0.05, 1.0), (0.85, 0.8), (1.0, 0.0)],
+            ..Default::default()
+        }),
+        emission_shape: particles::EmissionShape::Rect {
+            width: ARENA_WIDTH,
+            height: ARENA_HEIGHT,
+        },
+        shape: particles::ParticleShape::Circle { subdivisions: 4 },
         ..Default::default()
     }
 }
