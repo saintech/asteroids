@@ -12,3 +12,4 @@ readme="README.md"
 [dependencies]
 macroquad = "0.3"
 macroquad-particles = "0.1"
+macroquad-canvas = "0.3"

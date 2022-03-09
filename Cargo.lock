@@ -19,6 +19,7 @@ name = "asteroids"
 version = "0.1.0"
 dependencies = [
  "macroquad",
+ "macroquad-canvas",
  "macroquad-particles",
 ]
 
@@ -199,6 +200,15 @@ dependencies = [
  "miniquad",
  "quad-rand",
  "quad-snd",
+]
+
+[[package]]
+name = "macroquad-canvas"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52bcbeb1e4d22d210f488e4ec6badef7edb075d20fa8581817c38c65a1237f94"
+dependencies = [
+ "macroquad",
 ]
 
 [[package]]

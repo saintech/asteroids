@@ -1,34 +1,36 @@
 use std::collections::HashSet;
 use std::f32::consts::PI;
 
-use macroquad::{color, input, math, miniquad::date, rand, shapes, text, time, window};
+use macroquad::{
+    camera, color, input, material, math, miniquad::date, rand, shapes, text, texture, time, window,
+};
 use macroquad_particles as particles;
 
-const ARENA_WIDTH: f32 = 800.0;
-const ARENA_HEIGHT: f32 = 600.0;
-const SHIP_MAX_SPEED: f32 = 400.0;
-const SHIP_ACCEL: f32 = 500.0;
-const SHIP_DECEL: f32 = 0.2;
-const SHIP_DRAW_RADIUS: f32 = 14.0;
-const SHIP_HIT_RADIUS: f32 = 9.0;
+const ARENA_WIDTH: f32 = 432.0;
+const ARENA_HEIGHT: f32 = 240.0; // 600 * 0.4
+const SHIP_MAX_SPEED: f32 = 160.0;
+const SHIP_ACCEL: f32 = 200.0;
+const SHIP_DECEL: f32 = 0.08;
+const SHIP_DRAW_RADIUS: f32 = 5.6;
+const SHIP_HIT_RADIUS: f32 = 3.6;
 const SHIP_TURN_SPEED: f32 = 6.0;
 const SHIP_BULLET_COLOR: color::Color = color::Color::new(1.0, 0.0, 0.0, 1.0);
 const SHIP_BULLET_TIMER_LIMIT: f32 = 0.8;
-const SHIP_BULLET_SPEED: f32 = 600.0;
+const SHIP_BULLET_SPEED: f32 = 240.0;
 const BULLET_COOLDOWN: f32 = 0.3;
-const BULLET_RADIUS: f32 = 3.0;
-const ALIEN_DRAW_RADIUS_BY_KIND: &[f32] = &[14.0, 10.0];
-const ALIEN_HIT_RADIUS_BY_KIND: &[f32] = &[10.0, 7.0];
+const BULLET_RADIUS: f32 = 1.2;
+const ALIEN_DRAW_RADIUS_BY_KIND: &[f32] = &[5.6, 4.0];
+const ALIEN_HIT_RADIUS_BY_KIND: &[f32] = &[4.0, 2.8];
 const ALIEN_BULLET_TIMER_LIMIT_BY_KIND: &[f32] = &[0.9, 1.3];
-const ALIEN_BULLET_SPEED: f32 = 250.0;
+const ALIEN_BULLET_SPEED: f32 = 100.0;
 const ALIEN_BULLET_COLOR: color::Color = color::Color::new(1.0, 0.0, 1.0, 1.0);
 const ALIEN_SPAWN_PERIOD: f32 = 30.0;
 const ALIEN_SHOOT_PERIOD: f32 = 1.3;
 const ALIEN_SHIFT_PERIOD: f32 = 1.0;
 const ASTEROID_STAGES: &[AsteroidStage] = &[
-    AsteroidStage { max_speed: 180.0, radius: 12.0 },
-    AsteroidStage { max_speed: 120.0, radius: 28.0 },
-    AsteroidStage { max_speed: 60.0, radius: 40.0 },
+    AsteroidStage { max_speed: 72.0, radius: 4.8 },
+    AsteroidStage { max_speed: 48.0, radius: 11.2 },
+    AsteroidStage { max_speed: 24.0, radius: 16.0 },
 ];
 const KEYMAP: &[(input::KeyCode, Action)] = &[
     (input::KeyCode::Up, Action::Accelerate),
@@ -187,7 +189,7 @@ impl Alien {
             body: Body {
                 radius: ALIEN_HIT_RADIUS_BY_KIND[kind as usize],
                 angle,
-                speed: rand::gen_range(80.0, 100.0),
+                speed: rand::gen_range(32.0, 40.0),
                 is_hit: false,
             },
             is_destroyed: false,
@@ -209,7 +211,7 @@ struct Asteroid {
 
 impl Asteroid {
     pub fn new(position: math::Vec2, stage: usize) -> Self {
-        let radius = ASTEROID_STAGES[stage].radius + 5.0;
+        let radius = ASTEROID_STAGES[stage].radius + 2.0;
         let max_speed = ASTEROID_STAGES[stage].max_speed;
         let mut draw_points = vec![];
         let mut draw_angle: f32 = 0.0;
@@ -285,6 +287,21 @@ impl StarBackground {
     }
 }
 
+struct Renderer {
+    canvas: macroquad_canvas::Canvas2D,
+    crt_effect: Option<material::Material>,
+}
+
+impl Default for Renderer {
+    fn default() -> Self {
+        let mut canvas = macroquad_canvas::Canvas2D::new(ARENA_WIDTH, ARENA_HEIGHT);
+        canvas
+            .get_texture_mut()
+            .set_filter(texture::FilterMode::Nearest);
+        Renderer { canvas, crt_effect: None }
+    }
+}
+
 #[derive(Debug)]
 enum GameState {
     LevelLoading,
@@ -312,6 +329,7 @@ enum Action {
 #[derive(Default)]
 struct Game {
     state: GameState,
+    renderer: Renderer,
     player_actions: HashSet<Action>,
     break_timer: f32,
     alien_timer: f32,
@@ -324,6 +342,10 @@ struct Game {
 }
 
 fn load(game: &mut Game) {
+    game.renderer.crt_effect = Some(
+        material::load_material(CRT_VERTEX_SHADER, CRT_FRAGMENT_SHADER, Default::default())
+            .unwrap(),
+    );
     game.alien_timer = ALIEN_SPAWN_PERIOD;
 }
 
@@ -383,7 +405,7 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
             game.bullets
                 .push(Bullet::new(weapon_position, shoot_angle, Some(alien.kind)));
         }
-        if alien.position.x < -10.0 || ARENA_WIDTH + 10.0 < alien.position.x {
+        if alien.position.x < -4.0 || ARENA_WIDTH + 4.0 < alien.position.x {
             alien.is_destroyed = true;
         }
     }
@@ -615,6 +637,7 @@ fn gamestate_system_update(game: &mut Game, _dt: f32) {
         GameState::LevelCompleted => {
             if game.break_timer == 0.0 {
                 let old_game = std::mem::replace(game, Default::default());
+                game.renderer = old_game.renderer;
                 game.alien_timer = old_game.alien_timer;
                 game.star_bg = old_game.star_bg;
             }
@@ -622,6 +645,7 @@ fn gamestate_system_update(game: &mut Game, _dt: f32) {
         GameState::GameOver => {
             if game.break_timer == 0.0 {
                 let old_game = std::mem::replace(game, Default::default());
+                game.renderer = old_game.renderer;
                 game.alien_timer = old_game.alien_timer;
                 game.star_bg = old_game.star_bg;
             }
@@ -686,8 +710,9 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
     }
 }
 
-fn draw_ship(position: math::Vec2, sprite: &Sprite) {
+fn draw_ship(smooth_pos: math::Vec2, sprite: &Sprite) {
     // let (x, y) = (position.x, position.y);
+    let position = math::vec2(smooth_pos.x as i32 as f32, smooth_pos.y as i32 as f32);
     let &Sprite {
         ref variant,
         size: radius,
@@ -737,8 +762,9 @@ fn draw_ship(position: math::Vec2, sprite: &Sprite) {
     }
 }
 
-fn draw_polygon(draw_points: &[math::Vec2], offset: math::Vec2, color: color::Color) {
+fn draw_polygon(draw_points: &[math::Vec2], smooth_offset: math::Vec2, color: color::Color) {
     use macroquad::prelude::{DrawMode, Vertex};
+    let offset = math::vec2(smooth_offset.x as i32 as f32, smooth_offset.y as i32 as f32);
     let gl = unsafe { window::get_internal_gl().quad_gl };
     let vertices: Vec<_> = draw_points
         .iter()
@@ -754,6 +780,8 @@ fn draw_polygon(draw_points: &[math::Vec2], offset: math::Vec2, color: color::Co
 }
 
 fn draw(game: &mut Game) {
+    camera::set_camera(&game.renderer.canvas.camera);
+    window::clear_background(color::Color::new(0.1, 0.1, 0.1, 1.0));
     game.star_bg
         .static_emitter
         .draw(math::vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0));
@@ -801,8 +829,8 @@ fn draw(game: &mut Game) {
                 shapes::draw_line(
                     position.x,
                     position.y,
-                    position.x + sprite.angle.cos() * 10.0,
-                    position.y + sprite.angle.sin() * 10.0,
+                    position.x + sprite.angle.cos() * 4.0,
+                    position.y + sprite.angle.sin() * 4.0,
                     2.0,
                     sprite.color,
                 );
@@ -816,7 +844,7 @@ fn draw(game: &mut Game) {
                 draw_polygon(draw_points, position, sprite.color);
             }
             for Alien { position, sprite, .. } in &game.aliens {
-                let angle_by_x = (position.x * 2.0) % 360.0;
+                let angle_by_x = (position.x * 2.0) % 144.0;
                 shapes::draw_poly(
                     position.x,
                     position.y + offset.y,
@@ -828,6 +856,10 @@ fn draw(game: &mut Game) {
             }
         }
     }
+    camera::set_default_camera();
+    material::gl_use_material(game.renderer.crt_effect.unwrap());
+    game.renderer.canvas.draw();
+    material::gl_use_default_material();
 
     // Debug info
     let color = color::Color::new(0.5, 0.5, 0.5, 1.0);
@@ -896,9 +928,9 @@ fn asteroid_explosion() -> particles::EmitterConfig {
         local_coords: true,
         initial_direction: math::vec2(0.0, 1.0),
         initial_direction_spread: 2.0 * PI,
-        initial_velocity: 150.0,
+        initial_velocity: 60.0,
         initial_velocity_randomness: 0.4,
-        size: 3.0,
+        size: 1.2,
         shape: particles::ParticleShape::Circle { subdivisions: 7 },
         colors_curve: particles::ColorCurve {
             start: color::Color::new(0.6, 0.6, 0.0, 1.0),
@@ -918,9 +950,9 @@ fn ship_explosion(color: color::Color) -> particles::EmitterConfig {
         local_coords: true,
         initial_direction: math::vec2(0.0, 1.0),
         initial_direction_spread: 2.0 * PI,
-        initial_velocity: 50.0,
+        initial_velocity: 20.0,
         initial_velocity_randomness: 0.4,
-        size: 5.0,
+        size: 2.0,
         shape: particles::ParticleShape::Circle { subdivisions: 6 },
         colors_curve: particles::ColorCurve {
             start: color,
@@ -933,15 +965,15 @@ fn ship_explosion(color: color::Color) -> particles::EmitterConfig {
 
 fn stars() -> particles::EmitterConfig {
     particles::EmitterConfig {
-        lifetime: 40.0,
+        lifetime: 70.0,
         lifetime_randomness: 0.4,
-        amount: 33,
+        amount: 50,
         explosiveness: 0.2,
         local_coords: true,
         initial_direction: math::vec2(0.001, 0.0),
-        initial_velocity: 70.0,
+        initial_velocity: 28.0,
         initial_velocity_randomness: 0.8,
-        size: 1.6,
+        size: 1.2,
         size_randomness: 0.6,
         size_curve: Some(particles::Curve {
             points: vec![(0.0, 0.0), (0.05, 1.0), (0.85, 0.8), (1.0, 0.0)],
@@ -959,7 +991,9 @@ fn stars() -> particles::EmitterConfig {
 fn window_conf() -> window::Conf {
     window::Conf {
         window_title: String::from("asteroids"),
-        window_resizable: false,
+        // window_resizable: false,
+        window_width: ARENA_WIDTH as i32 * 3,
+        window_height: ARENA_HEIGHT as i32 * 3,
         ..Default::default()
     }
 }
@@ -984,3 +1018,48 @@ async fn main() {
         window::next_frame().await;
     }
 }
+
+const CRT_FRAGMENT_SHADER: &'static str = r#"#version 100
+precision lowp float;
+
+varying vec4 color;
+varying vec2 uv;
+    
+uniform sampler2D Texture;
+
+// https://www.shadertoy.com/view/XtlSD7
+
+void DrawScanline( inout vec3 color, vec2 uv )
+{
+    // float iTime = 2.0;
+    // float scanline 	= clamp( 0.85 + 0.15 * cos( 3.14 * ( uv.y + 0.008 * iTime ) * 240.0 * 1.0 ), 0.0, 1.0 );
+    // float grille 	= 0.85 + 0.15 * clamp( 1.5 * cos( 3.14 * uv.x * 432.0 * 1.0 ), 0.0, 1.0 );
+    float scanline 	= clamp(0.85 + 0.15 * cos(3.14 * (uv.y + 0.0014) * 240.0), 0.0, 1.0);
+    float grille 	= 0.94 + 0.06 * clamp(mod(uv.x * 432.0, 1.3) * 2.0, 0.0, 1.0);
+    color *= scanline * grille * 1.2;
+}
+
+void main() {
+    vec3 res = texture2D(Texture, uv).rgb * color.rgb;
+    DrawScanline(res, uv);
+    gl_FragColor = vec4(res, 1.0);
+}
+"#;
+
+const CRT_VERTEX_SHADER: &'static str = "#version 100
+attribute vec3 position;
+attribute vec2 texcoord;
+attribute vec4 color0;
+
+varying lowp vec2 uv;
+varying lowp vec4 color;
+
+uniform mat4 Model;
+uniform mat4 Projection;
+
+void main() {
+    gl_Position = Projection * Model * vec4(position, 1);
+    color = color0 / 255.0;
+    uv = texcoord;
+}
+";
