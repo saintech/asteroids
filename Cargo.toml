@@ -2,7 +2,7 @@
 name = "asteroids"
 version = "0.1.0"
 authors = ["saintech <mail@saintech.ru>"]
-edition = "2018"
+edition = "2021"
 license = "WTFPL"
 repository = "https://github.com/saintech/asteroids"
 readme="README.md"

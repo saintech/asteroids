@@ -6,58 +6,28 @@ use macroquad::{
 };
 use macroquad_particles as particles;
 
-const ARENA_WIDTH: f32 = 432.0;
-const ARENA_HEIGHT: f32 = 240.0; // 600 * 0.4
-const SHIP_MAX_SPEED: f32 = 160.0;
-const SHIP_ACCEL: f32 = 200.0;
-const SHIP_DECEL: f32 = 0.08;
-const SHIP_DRAW_RADIUS: f32 = 5.6;
-const SHIP_HIT_RADIUS: f32 = 3.6;
-const SHIP_TURN_SPEED: f32 = 6.0;
-const SHIP_BULLET_COLOR: color::Color = color::Color::new(1.0, 0.0, 0.0, 1.0);
-const SHIP_BULLET_TIMER_LIMIT: f32 = 0.8;
-const SHIP_BULLET_SPEED: f32 = 240.0;
-const BULLET_COOLDOWN: f32 = 0.3;
-const BULLET_RADIUS: f32 = 1.2;
-const ALIEN_DRAW_RADIUS_BY_KIND: &[f32] = &[5.6, 4.0];
-const ALIEN_HIT_RADIUS_BY_KIND: &[f32] = &[4.0, 2.8];
-const ALIEN_BULLET_TIMER_LIMIT_BY_KIND: &[f32] = &[0.9, 1.3];
-const ALIEN_BULLET_SPEED: f32 = 100.0;
-const ALIEN_BULLET_COLOR: color::Color = color::Color::new(1.0, 0.0, 1.0, 1.0);
-const ALIEN_SPAWN_PERIOD: f32 = 30.0;
-const ALIEN_SHOOT_PERIOD: f32 = 1.3;
-const ALIEN_SHIFT_PERIOD: f32 = 1.0;
-const ASTEROID_STAGES: &[AsteroidStage] = &[
-    AsteroidStage { max_speed: 72.0, radius: 4.8 },
-    AsteroidStage { max_speed: 48.0, radius: 11.2 },
-    AsteroidStage { max_speed: 24.0, radius: 16.0 },
-];
-const KEYMAP: &[(input::KeyCode, Action)] = &[
-    (input::KeyCode::Up, Action::Accelerate),
-    (input::KeyCode::Left, Action::TurnLeft),
-    (input::KeyCode::Right, Action::TurnRight),
-    (input::KeyCode::S, Action::Shoot),
-    (input::KeyCode::Escape, Action::TogglePause),
-];
+mod cfg;
+mod palette;
+mod sprites;
 
-struct AsteroidStage {
+pub struct AsteroidStage {
     max_speed: f32,
     radius: f32,
 }
 
 #[derive(PartialEq)]
 enum SpriteVariant {
-    Bullet,
-    Ship { has_exhaust: bool },
-    Asteroid { draw_points: Vec<math::Vec2> },
-    Alien,
+    Bullet {
+        color: color::Color,
+    },
+    Vector {
+        layers: Vec<(Vec<math::Vec2>, color::Color)>,
+    },
 }
 
 struct Sprite {
     variant: SpriteVariant,
-    size: f32,
     angle: f32,
-    color: color::Color,
 }
 
 #[derive(Default)]
@@ -80,23 +50,25 @@ impl Bullet {
     pub fn new(position: math::Vec2, angle: f32, alien_kind: Option<AlienKind>) -> Self {
         let (color, speed, life_timer) = if let Some(kind) = alien_kind {
             (
-                ALIEN_BULLET_COLOR,
-                ALIEN_BULLET_SPEED,
-                ALIEN_BULLET_TIMER_LIMIT_BY_KIND[kind as usize],
+                cfg::ALIEN_BULLET_COLOR,
+                cfg::ALIEN_BULLET_SPEED,
+                cfg::ALIEN_BULLET_TIMER_LIMIT_BY_KIND[kind as usize],
             )
         } else {
-            (SHIP_BULLET_COLOR, SHIP_BULLET_SPEED, SHIP_BULLET_TIMER_LIMIT)
+            (
+                cfg::SHIP_BULLET_COLOR,
+                cfg::SHIP_BULLET_SPEED,
+                cfg::SHIP_BULLET_TIMER_LIMIT,
+            )
         };
         Bullet {
             position,
             sprite: Sprite {
-                variant: SpriteVariant::Bullet,
-                size: f32::NAN,
+                variant: SpriteVariant::Bullet { color },
                 angle,
-                color,
             },
             body: Body {
-                radius: BULLET_RADIUS,
+                radius: cfg::BULLET_RADIUS,
                 angle,
                 speed,
                 is_hit: false,
@@ -111,6 +83,7 @@ struct Ship {
     position: math::Vec2,
     sprite: Sprite,
     body: Body,
+    has_exhaust: bool,
     is_destroyed: bool,
     weapon_cooldown_timer: f32,
 }
@@ -118,19 +91,20 @@ struct Ship {
 impl Ship {
     pub fn new() -> Self {
         Ship {
-            position: math::vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0),
+            position: math::vec2(cfg::ARENA_WIDTH / 2.0, cfg::ARENA_HEIGHT / 2.0),
             sprite: Sprite {
-                variant: SpriteVariant::Ship { has_exhaust: false },
-                size: SHIP_DRAW_RADIUS,
+                variant: SpriteVariant::Vector {
+                    layers: create_layers(sprites::SHIP, cfg::SHIP_DRAW_RADIUS),
+                },
                 angle: 0.0,
-                color: color::Color::new(0.0, 1.0, 1.0, 1.0),
             },
             body: Body {
-                radius: SHIP_HIT_RADIUS,
+                radius: cfg::SHIP_HIT_RADIUS,
                 angle: 0.0,
                 speed: 0.0,
                 is_hit: false,
             },
+            has_exhaust: false,
             is_destroyed: false,
             weapon_cooldown_timer: 0.0,
         }
@@ -169,9 +143,9 @@ struct Alien {
 
 impl Alien {
     pub fn new() -> Self {
-        let y = ARENA_HEIGHT * rand::gen_range(0.15, 0.85);
+        let y = cfg::ARENA_HEIGHT * rand::gen_range(0.15, 0.85);
         let direction = [AlienDirection::ToRight, AlienDirection::ToLeft][rand::gen_range(0, 2)];
-        let x = ARENA_WIDTH * direction as u32 as f32;
+        let x = cfg::ARENA_WIDTH * direction as u32 as f32;
         let angle = PI * direction as u32 as f32;
         let kind = if rand::gen_range(0_u32, 10) < 3 {
             AlienKind::Small
@@ -181,13 +155,16 @@ impl Alien {
         Alien {
             position: math::vec2(x, y),
             sprite: Sprite {
-                variant: SpriteVariant::Alien,
-                size: ALIEN_DRAW_RADIUS_BY_KIND[kind as usize],
+                variant: SpriteVariant::Vector {
+                    layers: create_layers(
+                        sprites::ALIEN,
+                        cfg::ALIEN_DRAW_RADIUS_BY_KIND[kind as usize],
+                    ),
+                },
                 angle: 0.0,
-                color: color::Color::new(0.0, 1.0, 0.0, 1.0),
             },
             body: Body {
-                radius: ALIEN_HIT_RADIUS_BY_KIND[kind as usize],
+                radius: cfg::ALIEN_HIT_RADIUS_BY_KIND[kind as usize],
                 angle,
                 speed: rand::gen_range(32.0, 40.0),
                 is_hit: false,
@@ -195,7 +172,7 @@ impl Alien {
             is_destroyed: false,
             kind,
             direction,
-            weapon_cooldown_timer: ALIEN_SHOOT_PERIOD,
+            weapon_cooldown_timer: cfg::ALIEN_SHOOT_PERIOD,
             shift_timer: 0.0,
         }
     }
@@ -211,24 +188,38 @@ struct Asteroid {
 
 impl Asteroid {
     pub fn new(position: math::Vec2, stage: usize) -> Self {
-        let radius = ASTEROID_STAGES[stage].radius + 2.0;
-        let max_speed = ASTEROID_STAGES[stage].max_speed;
-        let mut draw_points = vec![];
-        let mut draw_angle: f32 = 0.0;
-        while draw_angle < PI * 2.0 {
-            let distance = rand::gen_range(0.75, 1.0) * radius;
-            draw_points.push(math::vec2(draw_angle.cos() * distance, draw_angle.sin() * distance));
-            draw_angle += rand::gen_range(0.1, 0.7);
-        }
+        let radius = cfg::ASTEROID_STAGES[stage].radius;
+        let max_speed = cfg::ASTEROID_STAGES[stage].max_speed;
+        let mut layers = Vec::new();
+        layers.push({
+            let mut draw_points = Vec::new();
+            let mut draw_angle: f32 = 0.0;
+            while draw_angle < PI * 2.0 {
+                let distance = rand::gen_range(0.95, 1.1) * radius;
+                draw_points
+                    .push(math::vec2(draw_angle.cos() * distance, draw_angle.sin() * distance));
+                draw_angle += rand::gen_range(0.6, 1.2);
+            }
+            (draw_points, palette::DARKPURPLE)
+        });
+        layers.push({
+            let mut draw_points = Vec::new();
+            let mut draw_angle: f32 = 0.0;
+            while draw_angle < PI * 2.0 {
+                let distance = rand::gen_range(0.5, 0.85) * radius;
+                draw_points
+                    .push(math::vec2(draw_angle.cos() * distance, draw_angle.sin() * distance));
+                draw_angle += rand::gen_range(0.5, 0.7);
+            }
+            (draw_points, palette::LIGHTGRAY)
+        });
         let angle = rand::gen_range(0.0, 2.0 * PI);
         let speed = max_speed * rand::gen_range(0.5, 1.0);
         Asteroid {
             position,
             sprite: Sprite {
-                variant: SpriteVariant::Asteroid { draw_points },
-                size: f32::NAN,
+                variant: SpriteVariant::Vector { layers },
                 angle: 0.0,
-                color: color::Color::new(1.0, 1.0, 0.0, 1.0),
             },
             body: Body { radius, angle, speed, is_hit: false },
             is_destroyed: false,
@@ -265,17 +256,18 @@ impl StarBackground {
                     math::vec2(1.0 - 2.0 * multiplier as f32, rand::gen_range(-0.3, 0.3));
                 side_cfg.emission_shape = particles::EmissionShape::Rect {
                     width: 0.0,
-                    height: ARENA_HEIGHT * 1.2,
+                    height: cfg::ARENA_HEIGHT * 1.2,
                 };
-                side_emitter_pos = math::vec2(ARENA_WIDTH * multiplier as f32, ARENA_HEIGHT / 2.0);
+                side_emitter_pos =
+                    math::vec2(cfg::ARENA_WIDTH * multiplier as f32, cfg::ARENA_HEIGHT / 2.0);
             }
             2 => {
                 side_cfg.initial_direction = math::vec2(rand::gen_range(-0.3, 0.3), 1.0);
                 side_cfg.emission_shape = particles::EmissionShape::Rect {
-                    width: ARENA_WIDTH * 1.2,
+                    width: cfg::ARENA_WIDTH * 1.2,
                     height: 0.0,
                 };
-                side_emitter_pos = math::vec2(ARENA_WIDTH / 2.0, 0.0);
+                side_emitter_pos = math::vec2(cfg::ARENA_WIDTH / 2.0, 0.0);
             }
             _ => unreachable!(),
         }
@@ -294,7 +286,7 @@ struct Renderer {
 
 impl Default for Renderer {
     fn default() -> Self {
-        let mut canvas = macroquad_canvas::Canvas2D::new(ARENA_WIDTH, ARENA_HEIGHT);
+        let mut canvas = macroquad_canvas::Canvas2D::new(cfg::ARENA_WIDTH, cfg::ARENA_HEIGHT);
         canvas
             .get_texture_mut()
             .set_filter(texture::FilterMode::Nearest);
@@ -318,7 +310,7 @@ impl Default for GameState {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-enum Action {
+pub enum Action {
     Accelerate,
     TurnLeft,
     TurnRight,
@@ -343,10 +335,14 @@ struct Game {
 
 fn load(game: &mut Game) {
     game.renderer.crt_effect = Some(
-        material::load_material(CRT_VERTEX_SHADER, CRT_FRAGMENT_SHADER, Default::default())
-            .unwrap(),
+        material::load_material(
+            include_str!("crt.vert"),
+            include_str!("crt.frag"),
+            Default::default(),
+        )
+        .unwrap(),
     );
-    game.alien_timer = ALIEN_SPAWN_PERIOD;
+    game.alien_timer = cfg::ALIEN_SPAWN_PERIOD;
 }
 
 fn input_system_update(game: &mut Game, _dt: f32) {
@@ -354,7 +350,7 @@ fn input_system_update(game: &mut Game, _dt: f32) {
     match game.state {
         GameState::Pause => {
             use Action::*;
-            let pause_key = match KEYMAP[4] {
+            let pause_key = match cfg::KEYMAP[4] {
                 (pause_key, TogglePause) => pause_key,
                 _ => unreachable!(),
             };
@@ -364,7 +360,7 @@ fn input_system_update(game: &mut Game, _dt: f32) {
         }
         GameState::LevelRunning => {
             use Action::*;
-            for &(key, action) in KEYMAP {
+            for &(key, action) in cfg::KEYMAP {
                 if action == TogglePause {
                     if input::is_key_pressed(key) {
                         game.player_actions.insert(action);
@@ -385,7 +381,7 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
         let time_to_shift = alien.shift_timer == 0.0;
         let time_to_shoot = alien.weapon_cooldown_timer == 0.0;
         if time_to_shift {
-            alien.shift_timer = ALIEN_SHIFT_PERIOD;
+            alien.shift_timer = cfg::ALIEN_SHIFT_PERIOD;
             let d_angle = PI / 4.0;
             let origin_angle = PI * alien.direction as u32 as f32;
             alien.body.angle += d_angle * rand::gen_range(-2_i32, 2) as f32;
@@ -395,17 +391,14 @@ fn ai_system_update(game: &mut Game, _dt: f32) {
                 .clamp(origin_angle - d_angle, origin_angle + d_angle);
         }
         if time_to_shoot && game.ship.is_some() {
-            alien.weapon_cooldown_timer = ALIEN_SHOOT_PERIOD;
+            alien.weapon_cooldown_timer = cfg::ALIEN_SHOOT_PERIOD;
             let ship = game.ship.as_ref().unwrap();
-            let radius = ALIEN_HIT_RADIUS_BY_KIND[alien.kind as usize] / 2.0;
             let shoot_angle =
                 f32::atan2(ship.position.y - alien.position.y, ship.position.x - alien.position.x);
-            let weapon_position =
-                alien.position + math::vec2(shoot_angle.cos() * radius, shoot_angle.sin() * radius);
             game.bullets
-                .push(Bullet::new(weapon_position, shoot_angle, Some(alien.kind)));
+                .push(Bullet::new(alien.position, shoot_angle, Some(alien.kind)));
         }
-        if alien.position.x < -4.0 || ARENA_WIDTH + 4.0 < alien.position.x {
+        if alien.position.x < -4.0 || cfg::ARENA_WIDTH + 4.0 < alien.position.x {
             alien.is_destroyed = true;
         }
     }
@@ -440,27 +433,27 @@ fn move_system_update(game: &mut Game, dt: f32) {
         GameState::LevelRunning => {
             if let Some(ship) = &mut game.ship {
                 if game.player_actions.contains(&Action::TurnRight) {
-                    ship.sprite.angle += SHIP_TURN_SPEED * dt;
+                    ship.sprite.angle += cfg::SHIP_TURN_SPEED * dt;
                     ship.sprite.angle = ship.sprite.angle.rem_euclid(2.0 * PI);
                 }
                 if game.player_actions.contains(&Action::TurnLeft) {
-                    ship.sprite.angle -= SHIP_TURN_SPEED * dt;
+                    ship.sprite.angle -= cfg::SHIP_TURN_SPEED * dt;
                     ship.sprite.angle = ship.sprite.angle.rem_euclid(2.0 * PI);
                 }
                 if game.player_actions.contains(&Action::Accelerate)
-                    && ship.body.speed <= SHIP_MAX_SPEED
+                    && ship.body.speed <= cfg::SHIP_MAX_SPEED
                 {
-                    ship.sprite.variant = SpriteVariant::Ship { has_exhaust: true };
+                    ship.has_exhaust = true;
                     let (result_speed, result_angle) = sum_vectors(
                         ship.body.speed,
                         ship.body.angle,
-                        SHIP_ACCEL * dt,
+                        cfg::SHIP_ACCEL * dt,
                         ship.sprite.angle,
                     );
                     ship.body.speed = result_speed;
                     ship.body.angle = result_angle;
                 } else {
-                    ship.sprite.variant = SpriteVariant::Ship { has_exhaust: false };
+                    ship.has_exhaust = false;
                 }
             }
         }
@@ -470,7 +463,7 @@ fn move_system_update(game: &mut Game, dt: f32) {
         GameState::Pause => (),
         _ => {
             if let Some(Ship { position, body, .. }) = &mut game.ship {
-                body.speed -= body.speed * SHIP_DECEL * dt;
+                body.speed -= body.speed * cfg::SHIP_DECEL * dt;
                 move_position(position, body, dt, true, true);
             }
             for Alien { position, body, .. } in &mut game.aliens {
@@ -563,7 +556,7 @@ fn collision_system_update(game: &mut Game, _dt: f32) {
 fn damage_system_update(game: &mut Game, _dt: f32) {
     if let Some(ship) = game.ship.as_mut().filter(|sh| sh.body.is_hit) {
         ship.is_destroyed = true;
-        let expl_emitter = particles::Emitter::new(ship_explosion(ship.sprite.color));
+        let expl_emitter = particles::Emitter::new(ship_explosion(cfg::SHIP_EXPLOSION_COLOR));
         game.explosions.push(Explosion {
             position: ship.position,
             body: Default::default(),
@@ -573,7 +566,7 @@ fn damage_system_update(game: &mut Game, _dt: f32) {
     }
     for alien in game.aliens.iter_mut().filter(|a| a.body.is_hit) {
         alien.is_destroyed = true;
-        let expl_emitter = particles::Emitter::new(ship_explosion(alien.sprite.color));
+        let expl_emitter = particles::Emitter::new(ship_explosion(cfg::ALIEN_EXPLOSION_COLOR));
         game.explosions.push(Explosion {
             position: alien.position,
             body: Body {
@@ -669,14 +662,14 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
             }
             if game.asteroids.is_empty() {
                 let ship = game.ship.as_ref().unwrap();
-                let start_stage = ASTEROID_STAGES.len() - 1;
+                let start_stage = cfg::ASTEROID_STAGES.len() - 1;
                 while game.asteroids.len() < 5 {
                     let rand_pos = math::vec2(
-                        rand::gen_range(0.0, ARENA_WIDTH),
-                        rand::gen_range(0.0, ARENA_HEIGHT),
+                        rand::gen_range(0.0, cfg::ARENA_WIDTH),
+                        rand::gen_range(0.0, cfg::ARENA_HEIGHT),
                     );
                     let delta_pos = rand_pos - ship.position;
-                    const RADIUS: f32 = ARENA_HEIGHT * 0.3;
+                    const RADIUS: f32 = cfg::ARENA_HEIGHT * 0.3;
                     let is_too_close = delta_pos.x.powi(2) + delta_pos.y.powi(2) <= RADIUS.powi(2);
                     if !is_too_close {
                         game.asteroids.push(Asteroid::new(rand_pos, start_stage));
@@ -688,10 +681,10 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
             if let Some(ship) = &mut game.ship {
                 let shoot_is_ready = ship.weapon_cooldown_timer == 0.0;
                 if game.player_actions.contains(&Action::Shoot) && shoot_is_ready {
-                    ship.weapon_cooldown_timer = BULLET_COOLDOWN;
+                    ship.weapon_cooldown_timer = cfg::BULLET_COOLDOWN;
                     let bullet_offset = math::vec2(
-                        ship.sprite.angle.cos() * SHIP_DRAW_RADIUS,
-                        ship.sprite.angle.sin() * SHIP_DRAW_RADIUS,
+                        ship.sprite.angle.cos() * cfg::SHIP_HIT_RADIUS,
+                        ship.sprite.angle.sin() * cfg::SHIP_HIT_RADIUS,
                     );
                     game.bullets.push(Bullet::new(
                         ship.position + bullet_offset,
@@ -702,7 +695,7 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
             }
             let time_to_spawn_alien = game.alien_timer == 0.0;
             if time_to_spawn_alien {
-                game.alien_timer = ALIEN_SPAWN_PERIOD;
+                game.alien_timer = cfg::ALIEN_SPAWN_PERIOD;
                 game.aliens.push(Alien::new());
             }
         }
@@ -710,36 +703,23 @@ fn spawn_system_update(game: &mut Game, _dt: f32) {
     }
 }
 
-fn draw_ship(smooth_pos: math::Vec2, sprite: &Sprite) {
-    // let (x, y) = (position.x, position.y);
-    let position = math::vec2(smooth_pos.x as i32 as f32, smooth_pos.y as i32 as f32);
-    let &Sprite {
-        ref variant,
-        size: radius,
-        angle,
-        color,
-    } = sprite;
-    let has_exhaust = *variant == SpriteVariant::Ship { has_exhaust: true };
-    use macroquad::prelude::{DrawMode, Vertex};
-    let gl = unsafe { window::get_internal_gl().quad_gl };
-    let vertices = [
-        ((angle + PI * 0.0).cos() * radius, (angle + PI * 0.0).sin() * radius),
-        ((angle + PI * 0.75).cos() * radius, (angle + PI * 0.75).sin() * radius),
-        (
-            (angle + PI * 0.79).cos() * radius * 0.4,
-            (angle + PI * 0.79).sin() * radius * 0.4,
-        ),
-        (
-            (angle + PI * 1.21).cos() * radius * 0.4,
-            (angle + PI * 1.21).sin() * radius * 0.4,
-        ),
-        ((angle + PI * 1.25).cos() * radius, (angle + PI * 1.25).sin() * radius),
-    ]
-    .map(|(x, y)| Vertex::new(position.x + x, position.y + y, 0.0, 0.0, 0.0, color));
-    let indices = [0, 1, 2, 0, 2, 3, 0, 3, 4];
-    gl.texture(None);
-    gl.draw_mode(DrawMode::Triangles);
-    gl.geometry(&vertices, &indices);
+fn draw_ship(smooth_pos: math::Vec2, sprite: &Sprite, has_exhaust: bool) {
+    let position = math::vec2(smooth_pos.x as i32 as f32 + 0.5, smooth_pos.y as i32 as f32 + 0.5);
+    let &Sprite { ref variant, angle, .. } = sprite;
+    let radius = cfg::SHIP_DRAW_RADIUS;
+    let layers = match variant {
+        SpriteVariant::Vector { layers } => layers,
+        _ => unreachable!(),
+    };
+    // let draw_points = vec![
+    //     math::vec2(1.0, 0.0) * radius,
+    //     math::vec2(-0.70710677, 0.70710677) * radius,
+    //     math::vec2(-0.31606203, 0.2451628) * radius,
+    //     math::vec2(-0.31606197, -0.24516287) * radius,
+    //     math::vec2(-0.70710665, -0.7071069) * radius,
+    // ];
+    // draw_polygon(&layers[0].0, position, 0.0, layers[0].1);
+    draw_layers(layers, position, angle);
     if has_exhaust {
         let v1_offset = math::vec2(
             (angle + PI * 0.85).cos() * radius * 0.55,
@@ -757,18 +737,23 @@ fn draw_ship(smooth_pos: math::Vec2, sprite: &Sprite) {
             position + v1_offset,
             position + v2_offset,
             position + v3_offset,
-            color::Color::new(1.0, 1.0, 1.0, 1.0),
+            palette::WHITE,
         );
     }
 }
 
-fn draw_polygon(draw_points: &[math::Vec2], smooth_offset: math::Vec2, color: color::Color) {
+fn draw_polygon(
+    draw_points: &[math::Vec2],
+    offset: math::Vec2,
+    rotation: f32,
+    color: color::Color,
+) {
     use macroquad::prelude::{DrawMode, Vertex};
-    let offset = math::vec2(smooth_offset.x as i32 as f32, smooth_offset.y as i32 as f32);
     let gl = unsafe { window::get_internal_gl().quad_gl };
     let vertices: Vec<_> = draw_points
         .iter()
-        .map(|&p| p + offset)
+        .map(|&p| math::Mat2::from_angle(rotation).mul_vec2(p))
+        .map(|p| p + offset)
         .map(|p| Vertex::new(p.x, p.y, 0.0, 0.0, 0.0, color))
         .collect();
     let indices: Vec<_> = (1..(draw_points.len() as u16 - 1))
@@ -779,12 +764,18 @@ fn draw_polygon(draw_points: &[math::Vec2], smooth_offset: math::Vec2, color: co
     gl.geometry(&vertices, &indices);
 }
 
-fn draw(game: &mut Game) {
+fn draw_layers(layers: &[(Vec<math::Vec2>, color::Color)], offset: math::Vec2, rotation: f32) {
+    for (draw_points, color) in layers {
+        draw_polygon(draw_points, offset, rotation, *color);
+    }
+}
+
+fn draw_system_update(game: &mut Game, _dt: f32) {
     camera::set_camera(&game.renderer.canvas.camera);
-    window::clear_background(color::Color::new(0.1, 0.1, 0.1, 1.0));
+    window::clear_background(palette::BLACK);
     game.star_bg
         .static_emitter
-        .draw(math::vec2(ARENA_WIDTH / 2.0, ARENA_HEIGHT / 2.0));
+        .draw(math::vec2(cfg::ARENA_WIDTH / 2.0, cfg::ARENA_HEIGHT / 2.0));
     game.star_bg
         .side_emitter
         .draw(game.star_bg.side_emitter_pos);
@@ -793,10 +784,10 @@ fn draw(game: &mut Game) {
     }
     for y in -1..=1 {
         for x in -1..=1 {
-            let offset = math::vec2(x as f32 * ARENA_WIDTH, y as f32 * ARENA_HEIGHT);
-            for Ship { position, sprite, .. } in &game.ship {
+            let offset = math::vec2(x as f32 * cfg::ARENA_WIDTH, y as f32 * cfg::ARENA_HEIGHT);
+            for Ship { position, sprite, has_exhaust, .. } in &game.ship {
                 let position = *position + offset;
-                draw_ship(position, sprite);
+                draw_ship(position, sprite, *has_exhaust);
                 // shapes::draw_line(
                 //     position.x,
                 //     position.y,
@@ -808,13 +799,13 @@ fn draw(game: &mut Game) {
                 // shapes::draw_line(
                 //     position.x,
                 //     position.y,
-                //     position.x + sprite.angle.cos() * SHIP_ACCEL * 0.2,
-                //     position.y + sprite.angle.sin() * SHIP_ACCEL * 0.2,
+                //     position.x + sprite.angle.cos() * cfg::SHIP_ACCEL * 0.2,
+                //     position.y + sprite.angle.sin() * cfg::SHIP_ACCEL * 0.2,
                 //     2.0,
                 //     color::BLUE,
                 // );
                 // let (result_speed, result_angle) =
-                //     sum_vectors(body.speed, body.angle, SHIP_ACCEL, sprite.angle);
+                //     sum_vectors(body.speed, body.angle, cfg::SHIP_ACCEL, sprite.angle);
                 // shapes::draw_line(
                 //     position.x,
                 //     position.y,
@@ -824,45 +815,71 @@ fn draw(game: &mut Game) {
                 //     color::RED,
                 // );
             }
+            for Asteroid { position, sprite, .. } in &game.asteroids {
+                let layers = match &sprite.variant {
+                    SpriteVariant::Vector { layers } => layers,
+                    _ => unreachable!(),
+                };
+                let mut position = *position + offset;
+                position.x = position.x as i32 as f32;
+                position.y = position.y as i32 as f32;
+                draw_layers(layers, position, 0.0);
+            }
+            for Alien { position, sprite, .. } in &game.aliens {
+                let angle_by_x = f32::min((position.x * 8.0) % 180.0, 90.0);
+                let layers = match &sprite.variant {
+                    SpriteVariant::Vector { layers } => layers,
+                    _ => unreachable!(),
+                };
+                let position = math::vec2(
+                    position.x as i32 as f32 + 0.5,
+                    (position.y + offset.y) as i32 as f32 + 0.5,
+                );
+                draw_layers(&layers[..2], position, angle_by_x.to_radians());
+                draw_layers(&layers[2..], position, 0.0);
+            }
             for Bullet { position, sprite, .. } in &game.bullets {
                 let position = *position + offset;
+                let color = match sprite.variant {
+                    SpriteVariant::Bullet { color } => color,
+                    _ => unreachable!(),
+                };
                 shapes::draw_line(
                     position.x,
                     position.y,
                     position.x + sprite.angle.cos() * 4.0,
                     position.y + sprite.angle.sin() * 4.0,
                     2.0,
-                    sprite.color,
-                );
-            }
-            for Asteroid { position, sprite, .. } in &game.asteroids {
-                let draw_points = match &sprite.variant {
-                    SpriteVariant::Asteroid { draw_points } => draw_points,
-                    _ => unreachable!(),
-                };
-                let position = *position + offset;
-                draw_polygon(draw_points, position, sprite.color);
-            }
-            for Alien { position, sprite, .. } in &game.aliens {
-                let angle_by_x = (position.x * 2.0) % 144.0;
-                shapes::draw_poly(
-                    position.x,
-                    position.y + offset.y,
-                    6,
-                    sprite.size,
-                    angle_by_x,
-                    sprite.color,
+                    color,
                 );
             }
         }
     }
     camera::set_default_camera();
     material::gl_use_material(game.renderer.crt_effect.unwrap());
-    game.renderer.canvas.draw();
+    let window_size = math::vec2(window::screen_width(), window::screen_height());
+    let size_multiplier = f32::min(
+        (window_size.x / cfg::ARENA_WIDTH).trunc(),
+        (window_size.y / cfg::ARENA_HEIGHT).trunc(),
+    );
+    let dest_size =
+        math::vec2(cfg::ARENA_WIDTH * size_multiplier, cfg::ARENA_HEIGHT * size_multiplier);
+    let d_size = window_size - dest_size;
+    texture::draw_texture_ex(
+        *game.renderer.canvas.get_texture(),
+        (d_size.x as i32 / 2) as f32,
+        (d_size.y as i32 / 2) as f32,
+        palette::WHITE,
+        texture::DrawTextureParams {
+            dest_size: Some(dest_size),
+            ..Default::default()
+        },
+    );
+    // game.renderer.canvas.draw();
     material::gl_use_default_material();
 
     // Debug info
-    let color = color::Color::new(0.5, 0.5, 0.5, 1.0);
+    let color = palette::DARKGRAY;
     let ship = game.ship.as_ref();
     [
         ("fps", time::get_fps() as f32),
@@ -912,11 +929,21 @@ fn sum_vectors(v1_magnitude: f32, v1_angle: f32, v2_magnitude: f32, v2_angle: f3
 fn move_position(position: &mut math::Vec2, body: &Body, dt: f32, wrap_x: bool, wrap_y: bool) {
     *position += math::vec2(body.angle.cos() * body.speed * dt, body.angle.sin() * body.speed * dt);
     if wrap_x {
-        position.x = position.x.rem_euclid(ARENA_WIDTH);
+        position.x = position.x.rem_euclid(cfg::ARENA_WIDTH);
     }
     if wrap_y {
-        position.y = position.y.rem_euclid(ARENA_HEIGHT);
+        position.y = position.y.rem_euclid(cfg::ARENA_HEIGHT);
     }
+}
+
+fn create_layers(
+    layers_ref: &[(&[math::Vec2], color::Color)],
+    size: f32,
+) -> Vec<(Vec<math::Vec2>, color::Color)> {
+    layers_ref
+        .iter()
+        .map(|(points, color)| (points.iter().map(|&vec| vec * size).collect(), *color))
+        .collect()
 }
 
 fn asteroid_explosion() -> particles::EmitterConfig {
@@ -930,12 +957,16 @@ fn asteroid_explosion() -> particles::EmitterConfig {
         initial_direction_spread: 2.0 * PI,
         initial_velocity: 60.0,
         initial_velocity_randomness: 0.4,
-        size: 1.2,
+        size: 1.7,
+        size_curve: Some(particles::Curve {
+            points: vec![(0.0, 1.0), (0.85, 1.0), (1.0, 0.0)],
+            ..Default::default()
+        }),
         shape: particles::ParticleShape::Circle { subdivisions: 7 },
         colors_curve: particles::ColorCurve {
-            start: color::Color::new(0.6, 0.6, 0.0, 1.0),
-            mid: color::Color::new(0.6, 0.6, 0.0, 1.0),
-            end: color::Color::new(0.0, 0.0, 0.0, 1.0),
+            start: palette::LIGHTGRAY,
+            mid: palette::LIGHTGRAY,
+            end: palette::LIGHTGRAY,
         },
         ..Default::default()
     }
@@ -953,11 +984,15 @@ fn ship_explosion(color: color::Color) -> particles::EmitterConfig {
         initial_velocity: 20.0,
         initial_velocity_randomness: 0.4,
         size: 2.0,
-        shape: particles::ParticleShape::Circle { subdivisions: 6 },
+        size_curve: Some(particles::Curve {
+            points: vec![(0.0, 1.0), (0.85, 1.0), (1.0, 0.0)],
+            ..Default::default()
+        }),
+        shape: particles::ParticleShape::Circle { subdivisions: 4 },
         colors_curve: particles::ColorCurve {
             start: color,
             mid: color,
-            end: color::Color::new(0.0, 0.0, 0.0, 1.0),
+            end: color,
         },
         ..Default::default()
     }
@@ -980,10 +1015,15 @@ fn stars() -> particles::EmitterConfig {
             ..Default::default()
         }),
         emission_shape: particles::EmissionShape::Rect {
-            width: ARENA_WIDTH,
-            height: ARENA_HEIGHT,
+            width: cfg::ARENA_WIDTH,
+            height: cfg::ARENA_HEIGHT,
         },
         shape: particles::ParticleShape::Circle { subdivisions: 4 },
+        colors_curve: particles::ColorCurve {
+            start: palette::WHITE,
+            mid: palette::WHITE,
+            end: palette::WHITE,
+        },
         ..Default::default()
     }
 }
@@ -991,9 +1031,8 @@ fn stars() -> particles::EmitterConfig {
 fn window_conf() -> window::Conf {
     window::Conf {
         window_title: String::from("asteroids"),
-        // window_resizable: false,
-        window_width: ARENA_WIDTH as i32 * 3,
-        window_height: ARENA_HEIGHT as i32 * 3,
+        window_width: cfg::ARENA_WIDTH as i32 * 3,
+        window_height: cfg::ARENA_HEIGHT as i32 * 3,
         ..Default::default()
     }
 }
@@ -1001,7 +1040,7 @@ fn window_conf() -> window::Conf {
 #[macroquad::main(window_conf)]
 async fn main() {
     rand::srand(date::now() as u64);
-    let mut game = Game::default();
+    let mut game = Default::default();
     load(&mut game);
     loop {
         let delta_time = time::get_frame_time();
@@ -1014,52 +1053,7 @@ async fn main() {
         gamestate_system_update(&mut game, delta_time);
         cleanup_system_update(&mut game, delta_time);
         spawn_system_update(&mut game, delta_time);
-        draw(&mut game);
+        draw_system_update(&mut game, delta_time);
         window::next_frame().await;
     }
 }
-
-const CRT_FRAGMENT_SHADER: &'static str = r#"#version 100
-precision lowp float;
-
-varying vec4 color;
-varying vec2 uv;
-    
-uniform sampler2D Texture;
-
-// https://www.shadertoy.com/view/XtlSD7
-
-void DrawScanline( inout vec3 color, vec2 uv )
-{
-    // float iTime = 2.0;
-    // float scanline 	= clamp( 0.85 + 0.15 * cos( 3.14 * ( uv.y + 0.008 * iTime ) * 240.0 * 1.0 ), 0.0, 1.0 );
-    // float grille 	= 0.85 + 0.15 * clamp( 1.5 * cos( 3.14 * uv.x * 432.0 * 1.0 ), 0.0, 1.0 );
-    float scanline 	= clamp(0.85 + 0.15 * cos(3.14 * (uv.y + 0.0014) * 240.0), 0.0, 1.0);
-    float grille 	= 0.94 + 0.06 * clamp(mod(uv.x * 432.0, 1.3) * 2.0, 0.0, 1.0);
-    color *= scanline * grille * 1.2;
-}
-
-void main() {
-    vec3 res = texture2D(Texture, uv).rgb * color.rgb;
-    DrawScanline(res, uv);
-    gl_FragColor = vec4(res, 1.0);
-}
-"#;
-
-const CRT_VERTEX_SHADER: &'static str = "#version 100
-attribute vec3 position;
-attribute vec2 texcoord;
-attribute vec4 color0;
-
-varying lowp vec2 uv;
-varying lowp vec4 color;
-
-uniform mat4 Model;
-uniform mat4 Projection;
-
-void main() {
-    gl_Position = Projection * Model * vec4(position, 1);
-    color = color0 / 255.0;
-    uv = texcoord;
-}
-";
