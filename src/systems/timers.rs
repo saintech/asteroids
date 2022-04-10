@@ -1,8 +1,8 @@
-use crate::entity::cmpt;
+use crate::entity;
 
 pub fn update(game: &mut crate::Game, dt: f32) {
     match game.state {
-        cmpt::GameState::Pause => (),
+        entity::GameState::Pause => (),
         _ => {
             game.alien_timer = f32::max(0.0, game.alien_timer - dt);
             game.break_timer = f32::max(0.0, game.break_timer - dt);

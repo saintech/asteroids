@@ -1,9 +1,9 @@
-use crate::{cfg, entity, entity::cmpt};
+use crate::{cfg, entity};
 use macroquad::{math, rand};
 
 pub fn update(game: &mut crate::Game, _dt: f32) {
     match game.state {
-        cmpt::GameState::LevelLoading => {
+        entity::GameState::LevelLoading => {
             if game.ship.is_none() {
                 game.ship = Some(entity::Ship::new());
             }
@@ -25,10 +25,10 @@ pub fn update(game: &mut crate::Game, _dt: f32) {
                 }
             }
         }
-        cmpt::GameState::LevelRunning => {
+        entity::GameState::LevelRunning => {
             if let Some(ship) = &mut game.ship {
                 let shoot_is_ready = ship.weapon_cooldown_timer == 0.0;
-                if game.player_actions.contains(&cmpt::Action::Shoot) && shoot_is_ready {
+                if game.player_actions.contains(&entity::Action::Shoot) && shoot_is_ready {
                     ship.weapon_cooldown_timer = cfg::BULLET_COOLDOWN;
                     let bullet_offset = math::vec2(
                         ship.sprite.angle.cos() * cfg::SHIP_HIT_RADIUS,

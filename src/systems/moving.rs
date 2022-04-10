@@ -4,18 +4,18 @@ use std::f32::consts::PI;
 
 pub fn update(game: &mut crate::Game, dt: f32) {
     match game.state {
-        cmpt::GameState::Pause => (),
-        cmpt::GameState::LevelRunning => {
+        entity::GameState::Pause => (),
+        entity::GameState::LevelRunning => {
             if let Some(ship) = &mut game.ship {
-                if game.player_actions.contains(&cmpt::Action::TurnRight) {
+                if game.player_actions.contains(&entity::Action::TurnRight) {
                     ship.sprite.angle += cfg::SHIP_TURN_SPEED * dt;
                     ship.sprite.angle = ship.sprite.angle.rem_euclid(2.0 * PI);
                 }
-                if game.player_actions.contains(&cmpt::Action::TurnLeft) {
+                if game.player_actions.contains(&entity::Action::TurnLeft) {
                     ship.sprite.angle -= cfg::SHIP_TURN_SPEED * dt;
                     ship.sprite.angle = ship.sprite.angle.rem_euclid(2.0 * PI);
                 }
-                if game.player_actions.contains(&cmpt::Action::Accelerate)
+                if game.player_actions.contains(&entity::Action::Accelerate)
                     && ship.body.speed <= cfg::SHIP_MAX_SPEED
                 {
                     ship.has_exhaust = true;
@@ -35,7 +35,7 @@ pub fn update(game: &mut crate::Game, dt: f32) {
         _ => (),
     }
     match game.state {
-        cmpt::GameState::Pause => (),
+        entity::GameState::Pause => (),
         _ => {
             if let Some(entity::Ship { position, body, .. }) = &mut game.ship {
                 body.speed -= body.speed * cfg::SHIP_DECEL * dt;
