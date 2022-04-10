@@ -17,7 +17,7 @@ pub fn update(game: &mut crate::Game, _dt: f32) {
         entity::GameState::LevelRunning => {
             use entity::Action::*;
             for &(key, action) in cfg::KEYMAP {
-                if action == TogglePause {
+                if action == TogglePause || action == ToggleDebugInfo {
                     if input::is_key_pressed(key) {
                         game.player_actions.insert(action);
                     }

@@ -3,7 +3,8 @@ use macroquad::{camera, color, material, math, rand, shapes, text, texture, time
 use std::f32::consts::PI;
 
 pub fn update(game: &mut crate::Game, _dt: f32) {
-    camera::set_camera(&game.renderer.canvas.camera);
+    let renderer = &mut game.renderer;
+    camera::set_camera(&renderer.canvas.camera);
     window::clear_background(palette::BLACK);
     game.star_bg
         .static_emitter
@@ -89,7 +90,7 @@ pub fn update(game: &mut crate::Game, _dt: f32) {
     }
     camera::set_default_camera();
     window::clear_background(palette::BLACK);
-    material::gl_use_material(game.renderer.crt_effect.unwrap());
+    material::gl_use_material(renderer.crt_effect.unwrap());
     let window_size = math::vec2(window::screen_width(), window::screen_height());
     let size_multiplier = f32::min(
         (window_size.x / cfg::ARENA_WIDTH).trunc(),
@@ -99,7 +100,7 @@ pub fn update(game: &mut crate::Game, _dt: f32) {
         math::vec2(cfg::ARENA_WIDTH * size_multiplier, cfg::ARENA_HEIGHT * size_multiplier);
     let d_size = window_size - dest_size;
     texture::draw_texture_ex(
-        *game.renderer.canvas.get_texture(),
+        *renderer.canvas.get_texture(),
         (d_size.x as i32 / 2) as f32,
         (d_size.y as i32 / 2) as f32,
         palette::WHITE,
@@ -110,29 +111,35 @@ pub fn update(game: &mut crate::Game, _dt: f32) {
     );
     // game.renderer.canvas.draw();
     material::gl_use_default_material();
-
-    // Debug info
-    let color = palette::DARKGRAY;
-    let ship = game.ship.as_ref();
-    [
-        ("fps", time::get_fps() as f32),
-        ("ship.sprite.angle", ship.map_or(0.0, |sh| sh.sprite.angle)),
-        ("ship.position.x", ship.map_or(0.0, |sh| sh.position.x)),
-        ("ship.position.y", ship.map_or(0.0, |sh| sh.position.y)),
-        ("ship.body.angle", ship.map_or(0.0, |sh| sh.body.angle)),
-        ("ship.body.speed", ship.map_or(0.0, |sh| sh.body.speed)),
-        ("bullet_0.position.x", game.bullets.get(0).map_or(0.0, |b| b.position.x)),
-        ("bullet_0.position.y", game.bullets.get(0).map_or(0.0, |b| b.position.y)),
-        ("expl_0.position.x", game.explosions.get(0).map_or(0.0, |e| e.position.x)),
-        ("expl_0.position.y", game.explosions.get(0).map_or(0.0, |e| e.position.y)),
-        ("alien_0.position.x", game.aliens.get(0).map_or(0.0, |a| a.position.x)),
-        ("alien_0.position.y", game.aliens.get(0).map_or(0.0, |a| a.position.y)),
-    ]
-    .iter()
-    .enumerate()
-    .for_each(|(i, (name, val))| {
-        text::draw_text(&format!("{}: {}", name, val), 0.0, 16.0 * (i + 1) as f32, 16.0, color)
-    });
+    if game
+        .player_actions
+        .contains(&entity::Action::ToggleDebugInfo)
+    {
+        renderer.show_debug_info = !renderer.show_debug_info;
+    }
+    if renderer.show_debug_info {
+        let color = palette::DARKGRAY;
+        let ship = game.ship.as_ref();
+        [
+            ("fps", time::get_fps() as f32),
+            ("ship.sprite.angle", ship.map_or(0.0, |sh| sh.sprite.angle)),
+            ("ship.position.x", ship.map_or(0.0, |sh| sh.position.x)),
+            ("ship.position.y", ship.map_or(0.0, |sh| sh.position.y)),
+            ("ship.body.angle", ship.map_or(0.0, |sh| sh.body.angle)),
+            ("ship.body.speed", ship.map_or(0.0, |sh| sh.body.speed)),
+            ("bullet_0.position.x", game.bullets.get(0).map_or(0.0, |b| b.position.x)),
+            ("bullet_0.position.y", game.bullets.get(0).map_or(0.0, |b| b.position.y)),
+            ("expl_0.position.x", game.explosions.get(0).map_or(0.0, |e| e.position.x)),
+            ("expl_0.position.y", game.explosions.get(0).map_or(0.0, |e| e.position.y)),
+            ("alien_0.position.x", game.aliens.get(0).map_or(0.0, |a| a.position.x)),
+            ("alien_0.position.y", game.aliens.get(0).map_or(0.0, |a| a.position.y)),
+        ]
+        .iter()
+        .enumerate()
+        .for_each(|(i, (name, val))| {
+            text::draw_text(&format!("{}: {}", name, val), 0.0, 16.0 * (i + 1) as f32, 16.0, color)
+        });
+    }
 }
 
 fn draw_ship(smooth_pos: math::Vec2, sprite: &cmpt::Sprite, has_exhaust: bool) {

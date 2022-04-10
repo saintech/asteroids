@@ -278,6 +278,7 @@ impl StarBackground {
 }
 
 pub struct Renderer {
+    pub show_debug_info: bool,
     pub canvas: macroquad_canvas::Canvas2D,
     pub crt_effect: Option<material::Material>,
 }
@@ -288,7 +289,11 @@ impl Default for Renderer {
         canvas
             .get_texture_mut()
             .set_filter(texture::FilterMode::Nearest);
-        Renderer { canvas, crt_effect: None }
+        Renderer {
+            show_debug_info: false,
+            canvas,
+            crt_effect: None,
+        }
     }
 }
 
@@ -354,4 +359,5 @@ pub enum Action {
     TurnRight,
     Shoot,
     TogglePause,
+    ToggleDebugInfo,
 }

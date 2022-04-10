@@ -35,4 +35,5 @@ pub const KEYMAP: &[(input::KeyCode, Action)] = &[
     (input::KeyCode::Right, Action::TurnRight),
     (input::KeyCode::S, Action::Shoot),
     (input::KeyCode::Escape, Action::TogglePause),
+    (input::KeyCode::D, Action::ToggleDebugInfo),
 ];
