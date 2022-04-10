@@ -1,4 +1,7 @@
-use crate::{palette, Action, AsteroidStage};
+use crate::{
+    entity::cmpt::{Action, AsteroidStage},
+    palette,
+};
 use macroquad::{color, input};
 
 pub const ARENA_WIDTH: f32 = 432.0;
