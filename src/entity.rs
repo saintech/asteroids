@@ -1,10 +1,8 @@
-use std::f32::consts::PI;
-
-use macroquad::{color, material, math, rand, texture};
-use macroquad_particles as particles;
-
 use crate::{cfg, palette, sprites};
 use cmpt::*;
+use macroquad::{color, material, math, rand, texture};
+use macroquad_particles as particles;
+use std::f32::consts::PI;
 
 /// Components for game entities.
 pub mod cmpt {
