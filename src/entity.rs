@@ -209,7 +209,7 @@ impl Asteroid {
                     .push(math::vec2(draw_angle.cos() * distance, draw_angle.sin() * distance));
                 draw_angle += rand::gen_range(0.5, 0.7);
             }
-            (draw_points, palette::BEIGE)
+            (draw_points, palette::LIGHTGRAY)
         });
         let angle = rand::gen_range(0.0, 2.0 * PI);
         let speed = max_speed * rand::gen_range(0.5, 1.0);
